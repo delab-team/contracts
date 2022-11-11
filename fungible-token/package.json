@@ -1,0 +1,35 @@
+{
+    "name": "@delab-team/fungible-token",
+    "version": "1.0.0",
+    "license": "GPL-3.0",
+    "scripts": {
+        "build:root": "func -S -o build/root.code.fif -W build/root.code.boc smartco/root.fc; fift build/root.code.fif",
+        "build:wallet": "func -S -o build/wallet.code.fif -W build/wallet.code.boc smartco/wallet.fc; fift build/wallet.code.fif",
+        "build": "yarn build:root; yarn build:wallet",
+        "clean": "rimraf build/*code*",
+
+        "deploy": "ts-node scripts/deploy.ts",
+        "rootctrl": "ts-node scripts/rootctrl.ts",
+        "wallctrl": "ts-node scripts/wallctrl.ts"
+    },
+    "dependencies": {
+        "commander": "^9.4.1",
+        "ton-compiler": "^2.0.0",
+        "ton3-contracts": "^0.0.16",
+        "ton3": "^0.0.16"
+    },
+    "devDependencies": {
+        "@types/node": "^18.11.7",
+        "@types/qs": "^6.9.7",
+        "@typescript-eslint/eslint-plugin": "^5.41.0",
+        "@typescript-eslint/parser": "^5.41.0",
+        "eslint": "^8.10.0",
+        "eslint-config-airbnb-base": "^15.0.0",
+        "eslint-config-airbnb-typescript": "^17.0.0",
+        "eslint-import-resolver-typescript": "^3.5.2",
+        "eslint-plugin-import": "^2.25.4",
+        "rimraf": "^3.0.2",
+        "ts-node": "^10.9.1",
+        "typescript": "^4.8.4"
+    }
+}

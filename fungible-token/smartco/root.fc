@@ -1,0 +1,146 @@
+#pragma version ^0.3.0;
+
+#include "libs/stdlib.fc";
+#include "libs/delib.fc";
+
+#include "utils/const.fc";
+#include "utils/tl-b.fc";
+#include "utils/context.fc";
+
+#include "root/storage.fc";
+#include "wallet/shared.fc";
+#include "root/methods.fc";
+
+;; private function for token minting
+;; warning: it will generate msg with flag 128 + 2
+() _mint(slice to, int amount, int fwd_coins, cell fwd_body, int notifbounce) impure inline_ref {
+    cell body = build::wallet::internal_transfer_query(
+        msg::query_id, amount, to, msg::sender, fwd_coins, fwd_body, notifbounce
+    );
+
+    cell state_init = wallet::state_init(self::wallet_code, to, my_address());
+    cell deploy_msg = wallet::deploy_msg(
+        delib::addrstd_by_state(WALLET::WORKCHAIN, state_init), state_init, body
+    );
+
+    send_raw_message(deploy_msg, MSGFLAG::ALL_NOT_RESERVED);
+    self::total_supply += amount;
+}
+
+;; contract constructor (can be called only once)
+int root::constructor(slice msg_body) impure inline_ref {
+    throw_if(ERR::CONSRTUCTOR, get_data().begin_parse().preload_int(1));
+    ctx::reserve(ROOT::TARGET_BALANCE);
+
+    (
+        int mintable, int supply, int fwd_amount,
+        cell fwd_body, int notifbounce, cell metadata, cell wallet_code
+    ) = msg_body~load::root::constructor_query();
+
+    self::inited?       = true;
+    self::mintable?     = mintable;
+    self::total_supply  = 0;
+    self::owner_address = msg::sender;
+    self::metadata      = metadata;
+    self::wallet_code   = wallet_code;
+
+    if (supply > 0) {
+        _mint(msg::sender, supply, fwd_amount, fwd_body, notifbounce);
+        return true;
+    }
+
+    ctx::send_excesses(delib::ES(), MSGFLAG::ALL_NOT_RESERVED);
+    return true;
+}
+
+;; accept notification from token-wallet to burn tokens
+int root::burn_notification(slice msg_body) impure inline_ref {
+    (
+        int token_amount, slice sender_address, slice response_address
+    ) = msg_body~load::root::burn_notification_query();
+
+    cell state_init = wallet::state_init(self::wallet_code, sender_address, my_address());
+    slice wallet_address = delib::addrstd_by_state(WALLET::WORKCHAIN, state_init);
+
+    throw_unless(ERR::ONLY_WALLET, equal_slice_bits(wallet_address, msg::sender));
+    self::total_supply -= token_amount;
+
+    ctx::send_excesses(response_address, MSGFLAG::REMAINING_GAS);
+    return true;
+}
+
+;; only owner function to change metadata
+int root::change_metadata(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+
+    self::metadata = msg_body~load::root::change_metadata_query();
+    ctx::send_excesses(delib::ES(), MSGFLAG::REMAINING_GAS);
+
+    return true;
+}
+
+;; only owner function to transfer contract ownership
+int root::transfer_ownership(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+
+    self::owner_address = msg_body~load::root::transfer_ownership_query();
+    delib::force_addr(self::owner_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
+    ctx::send_excesses(delib::ES(), MSGFLAG::REMAINING_GAS);
+
+    return true;
+}
+
+;; only owner function to mint new tokens
+int root::mint(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+    ctx::reserve(ROOT::TARGET_BALANCE);
+
+    throw_unless(ERR::NOT_MINTABLE, self::mintable?);
+
+    (
+        slice to_address, int token_amount, int fwd_amount, cell fwd_body, int notifbounce
+    ) = msg_body~load::root::mint_query();
+
+    delib::force_addr(to_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
+
+    to_address = to_address.delib::is_addr_none?() ? msg::sender : to_address;
+    _mint(to_address, token_amount, fwd_amount, fwd_body, notifbounce);
+
+    return true;
+}
+
+;; bounced messages handler
+int root::on_bounce(slice msg_body) impure inline_ref {
+    throw_unless(ERR::INVOP_BOUNCE, msg::op == op::wallet::internal_transfer_query);
+    _load_data();
+    self::total_supply -= msg_body~load_coins();
+
+    ;; we send excesses to the owner because only he could call the _mint function
+    ctx::send_excesses(self::owner_address, MSGFLAG::REMAINING_GAS);
+    return true;
+}
+
+;; function selector by msg::op
+int root::selector(slice msg_body) impure inline {
+    if (msg::bounced?) { return (root::on_bounce(msg_body)); }
+    if (msg::op == op::root::constructor_query) { return root::constructor(msg_body); }
+
+    _load_data();
+    if (msg::op == op::root::burn_notification_query) { return root::burn_notification(msg_body); }
+    if (msg::op == op::root::change_metadata_query) { return root::change_metadata(msg_body); }
+    if (msg::op == op::root::transfer_ownership_query) { return root::transfer_ownership(msg_body); }
+    if (msg::op == op::root::mint_query) { return root::mint(msg_body); }
+
+    return false;
+}
+
+;; internal message entry point
+() recv_internal(int balance, int value, cell msg, slice msg_body) impure {
+    throw_if(0, msg_body.slice_empty?()); ;; ignore empty messages
+
+    msg_body~ctx::load(msg, balance, value);
+    delib::force_addr(msg::sender, ROOT::WORKCHAIN, false, ERR::ADDR_FORMAT);
+
+    if (root::selector(msg_body)) { return (_save_data()); }
+    throw(0xffff); ;; not found
+}

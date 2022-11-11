@@ -1,0 +1,11 @@
+# IDE
+.idea
+.vscode
+
+# MacOS General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log

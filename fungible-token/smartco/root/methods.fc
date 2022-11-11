@@ -1,0 +1,24 @@
+#pragma version ^0.3.0;
+
+;; according to TEP74 (Fungible tokens (Jettons) standard)
+(int, int, slice, cell, cell) get_jetton_data() method_id {
+    _load_data();
+
+    return (
+        self::total_supply,
+        self::mintable?,
+        self::owner_address,
+        self::metadata,
+        self::wallet_code
+    );
+}
+
+;; according to TEP74 (Fungible tokens (Jettons) standard)
+slice get_wallet_address(slice owner) method_id {
+    _load_data();
+
+    cell state_init = wallet::state_init(self::wallet_code, owner, my_address());
+    slice address = delib::addrstd_by_state(WALLET::WORKCHAIN, state_init);
+
+    return address;
+}

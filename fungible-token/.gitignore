@@ -1,0 +1,6 @@
+# Project
+node_modules
+tonconfig.json
+metadata.json
+build/*
+!build/.gitkeep
