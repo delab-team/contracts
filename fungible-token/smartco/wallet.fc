@@ -13,6 +13,7 @@
 
 int wallet::internal_transfer(slice msg_body) impure inline_ref {
     ctx::reserve(WALLET::TARGET_BALANCE);
+
     (
         int token_amount, slice from_address, slice response_address,
         int fwd_amount, cell fwd_body, int notifbounce
@@ -23,7 +24,7 @@ int wallet::internal_transfer(slice msg_body) impure inline_ref {
 
     int root? = equal_slice_bits(msg::sender, self::troot_addr);
     int wall? = equal_slice_bits(msg::sender, wallet_address);
-    throw_unless(ERR::ONLY_WALLET_OR_ROOT, root? | wall?);
+    throw_unless(ERR::ACCESS, root? | wall?);
 
     self::balance += token_amount;
 
@@ -42,12 +43,14 @@ int wallet::internal_transfer(slice msg_body) impure inline_ref {
 }
 
 int wallet::burn(slice msg_body) impure inline_ref {
-    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+    throw_unless(ERR::BALANCE0, self::balance >= 0);
+    throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + 2 * STC::GAS_CONSUMPTION);
 
     (int token_amount, slice response_address) = msg_body~load::wallet::burn_query();
+    delib::force_addr(response_address, WALLET::WORKCHAIN, false, ERR::ADDR_FORMAT);
 
-    delib::force_addr(response_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
-    response_address = response_address.delib::is_addr_none?() ? msg::sender : response_address;
+    self::balance -= token_amount;
 
     cell body = build::root::burn_notification_query(
         msg::query_id, token_amount, msg::sender, response_address
@@ -55,13 +58,13 @@ int wallet::burn(slice msg_body) impure inline_ref {
 
     cell msg = delib::int_msg(self::troot_addr, true, 0, body, delib::EC());
     send_raw_message(msg, MSGFLAG::REMAINING_GAS);
-    self::balance -= token_amount;
 
     return true;
 }
 
 int wallet::transfer(slice msg_body, int notifbounce) impure inline_ref {
-    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+    throw_unless(ERR::BALANCE0, self::balance >= 0);
 
     (
         int token_amount, slice to_address, slice response_address, int fwd_amount, cell fwd_body
@@ -69,17 +72,18 @@ int wallet::transfer(slice msg_body, int notifbounce) impure inline_ref {
 
     ;; if not fwd_amount: wal1->wal2, wal2->response (2 msgs)
     ;; if     fwd_amount: +wal2->owner(notif), +owner->wal2(bounced notif) (2 msgs)
-    int count = fwd_amount ? 4 : 2;
-    throw_if(ERR::NOT_ENOUGH_FOR_STABILITY,
+    int fcount = fwd_amount ? 4 : 2;
+    throw_if(ERR::NOT_ENOUGH,
         msg::value < fwd_amount
-                    + (count * msg::fwd_fee)
-                    + (count * (STC::GAS_CONSUMPTION + STC::MIN_FOR_STORAGE))
+                    + WALLET::TARGET_BALANCE
+                    + (fcount * msg::fwd_fee)
+                    + (fcount * (STC::GAS_CONSUMPTION + STC::MIN_FOR_STORAGE))
     );
 
     delib::force_addr(to_address, WALLET::WORKCHAIN, false, ERR::ADDR_FORMAT);
-    delib::force_addr(response_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
+    delib::force_addr(response_address, WALLET::WORKCHAIN, false, ERR::ADDR_FORMAT);
 
-    response_address = response_address.delib::is_addr_none?() ? msg::sender : response_address;
+    self::balance -= token_amount;
 
     cell state_init = wallet::state_init(self::wallet_code, to_address, self::troot_addr);
     slice wallet_address = delib::addrstd_by_state(WALLET::WORKCHAIN, state_init);
@@ -91,8 +95,6 @@ int wallet::transfer(slice msg_body, int notifbounce) impure inline_ref {
 
     cell msg = delib::int_msg(wallet_address, true, 0, body, state_init);
     send_raw_message(msg, MSGFLAG::REMAINING_GAS);
-    self::balance -= token_amount;
-
     return true;
 }
 

@@ -147,7 +147,7 @@ cell build::root::mint_query(
     slice   response_address    = s~load_msg_addr();
     int     fwd_amount          = s~load_coins();
 
-    s~load_int(1); ;; skip either_bit:BoolTrue
+    s~skip_bits(1); ;; skip either_bit:BoolTrue
 
     cell    fwd_body    = s~load_ref();
     int     notifbounce = s~load_int(1);

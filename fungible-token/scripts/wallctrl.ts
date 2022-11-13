@@ -16,7 +16,7 @@ const program = new Command()
 
 program
     .command('send')
-    .description('sends tokens to the specified address (needs at least 0.1 TON + fwd-amount)')
+    .description('sends tokens to the specified address (needs at least 0.5 TON + fwd-amount)')
     .argument('<token>', 'base64 address of root token contract')
     .argument('<to>', 'base64 address of tokens receiver')
     .argument('<amount>', 'amount of tokens')
@@ -28,7 +28,7 @@ program
 
 program
     .command('burn')
-    .description('burns tokens from your wallet (needs at least 0.1 TON)')
+    .description('burns tokens from your wallet (needs at least 0.5 TON)')
     .argument('<token>', 'base64 address of root token contract')
     .argument('<amount>', 'amount of tokens')
     .option('-r, --response <base64-address>', 'sets response_address')
@@ -67,7 +67,7 @@ async function mint (token: string, to: string, amount: string) {
     const msg = TokenWallet.buildTransferMessage({
         tokenAmount: Coins.fromNano(amount),
         to: new Address(to),
-        responseAddress: options.response ? new Address(options.response) : Address.NONE,
+        responseAddress: options.response ? new Address(options.response) : context.wallet.address,
         fwdAmount,
         fwdBody,
         notifbounce: options.notifbounce
@@ -79,7 +79,7 @@ async function mint (token: string, to: string, amount: string) {
     const seqno = await getSeqno(context.wallet.address, context.client)
     const transfer = context.wallet.createTransferMessage([ {
         destination: tokenWallet,
-        amount: new Coins(0.1).add(fwdAmount),
+        amount: new Coins(0.5).add(fwdAmount),
         body: msg,
         mode: 3
     } ], seqno).sign(context.keypair.private)
@@ -94,7 +94,7 @@ async function burn (token: string, amount: string) {
 
     const msg = TokenWallet.buildBurnMessage(
         Coins.fromNano(amount),
-        options.response ? new Address(options.response) : Address.NONE
+        options.response ? new Address(options.response) : context.wallet.address
     )
 
     const tokenWallet = await resolveWalletAddress(context.client, token, context.wallet.address)
@@ -103,7 +103,7 @@ async function burn (token: string, amount: string) {
     const seqno = await getSeqno(context.wallet.address, context.client)
     const transfer = context.wallet.createTransferMessage([ {
         destination: tokenWallet,
-        amount: new Coins(0.1),
+        amount: new Coins(0.5),
         body: msg,
         mode: 3
     } ], seqno).sign(context.keypair.private)

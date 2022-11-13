@@ -62,7 +62,7 @@ int root::burn_notification(slice msg_body) impure inline_ref {
     cell state_init = wallet::state_init(self::wallet_code, sender_address, my_address());
     slice wallet_address = delib::addrstd_by_state(WALLET::WORKCHAIN, state_init);
 
-    throw_unless(ERR::ONLY_WALLET, equal_slice_bits(wallet_address, msg::sender));
+    throw_unless(ERR::ACCESS, equal_slice_bits(wallet_address, msg::sender));
     self::total_supply -= token_amount;
 
     ctx::send_excesses(response_address, MSGFLAG::REMAINING_GAS);
@@ -71,7 +71,7 @@ int root::burn_notification(slice msg_body) impure inline_ref {
 
 ;; only owner function to change metadata
 int root::change_metadata(slice msg_body) impure inline_ref {
-    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
 
     self::metadata = msg_body~load::root::change_metadata_query();
     ctx::send_excesses(delib::ES(), MSGFLAG::REMAINING_GAS);
@@ -81,7 +81,7 @@ int root::change_metadata(slice msg_body) impure inline_ref {
 
 ;; only owner function to transfer contract ownership
 int root::transfer_ownership(slice msg_body) impure inline_ref {
-    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
 
     self::owner_address = msg_body~load::root::transfer_ownership_query();
     delib::force_addr(self::owner_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
@@ -92,18 +92,15 @@ int root::transfer_ownership(slice msg_body) impure inline_ref {
 
 ;; only owner function to mint new tokens
 int root::mint(slice msg_body) impure inline_ref {
-    ctx::only_owner(ERR::ONLY_OWNER, self::owner_address);
-    ctx::reserve(ROOT::TARGET_BALANCE);
-
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
     throw_unless(ERR::NOT_MINTABLE, self::mintable?);
+    ctx::reserve(ROOT::TARGET_BALANCE);
 
     (
         slice to_address, int token_amount, int fwd_amount, cell fwd_body, int notifbounce
     ) = msg_body~load::root::mint_query();
 
-    delib::force_addr(to_address, WALLET::WORKCHAIN, true, ERR::ADDR_FORMAT);
-
-    to_address = to_address.delib::is_addr_none?() ? msg::sender : to_address;
+    delib::force_addr(to_address, WALLET::WORKCHAIN, false, ERR::ADDR_FORMAT);
     _mint(to_address, token_amount, fwd_amount, fwd_body, notifbounce);
 
     return true;

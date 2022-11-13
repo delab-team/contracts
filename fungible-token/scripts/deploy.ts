@@ -23,7 +23,7 @@ const options: Options = new Command().name(path.basename(__filename))
     .argument('<metadata>', 'path to json file with token metadata')
     .argument('<supply>', 'initial supply in minimum token units')
 
-    .option('-m, --mintable', 'allows to mint new tokens after deployment', true)
+    .option('-m, --mintable', 'allows to mint new tokens after deployment', false)
     .option('-a, --fwd-amount [number]', 'sets transfer_notification fwd amount in TONs')
     .option('-b, --fwd-body [path-to-boc]', 'sets transfer_notification fwd body')
     .option('-n, --notifbounce', 'sends transfer_notification with bounce flag', false)

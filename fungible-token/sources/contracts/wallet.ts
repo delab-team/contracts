@@ -10,7 +10,7 @@ interface TransferOptions {
     queryId?: number | bigint,
     tokenAmount: Coins,
     to: Address,
-    responseAddress?: Address,
+    responseAddress: Address,
     fwdAmount?: Coins,
     fwdBody?: Cell,
     notifbounce?: boolean
@@ -26,7 +26,7 @@ class TokenWallet {
             queryId = this.newQueryId(),
             tokenAmount,
             to,
-            responseAddress = Address.NONE,
+            responseAddress,
             fwdAmount = Coins.fromNano(0),
             fwdBody = new Builder().cell(),
             notifbounce = false
@@ -55,7 +55,7 @@ class TokenWallet {
 
     public static buildBurnMessage (
         amount: Coins,
-        response: Address = Address.NONE,
+        response: Address,
         queryId: number | bigint = this.newQueryId()
     ): Cell {
         // burn_query

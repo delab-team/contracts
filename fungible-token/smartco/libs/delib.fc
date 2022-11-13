@@ -2,9 +2,6 @@
 
 ;; FunC stdlib is required
 
-;; calculates a tuple length
-int delib::tlen(tuple t) asm "TLEN PUSHINT";
-
 ;; converts a slice into cell
 cell delib::stc(slice s) asm "NEWC SWAP STSLICER ENDC";
 
@@ -78,9 +75,9 @@ slice delib::addrstd_by_state(int workchain, cell state_init) inline {
     return addr.end_cell().begin_parse();
 }
 
-int delib::is_addr_none?(slice address) asm "2 PLDU 0 PUSHINT EQUAL";
-int delib::is_addr_std_no_anycast?(slice address) asm "3 PLDU 4 PUSHINT EQUAL";
-int delib::is_wc_eq?(int wc, slice addr) asm "REWRITESTDADDR DROP SWAP EQUAL";
+int delib::is_wc_eq?(int wc, slice addr)            asm "REWRITESTDADDR DROP EQUAL";
+int delib::is_addr_none?(slice address)             asm "b{00} PUSHSLICE SDEQ";
+int delib::is_addr_std_no_anycast?(slice address)   asm "3 PLDU 4 PUSHINT EQUAL";
 
 () delib::force_addr(slice addr, int chain, int can_be_none?, int err) impure inline {
     int is_none? = addr.delib::is_addr_none?();

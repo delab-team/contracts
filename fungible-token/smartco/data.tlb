@@ -22,9 +22,9 @@ var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
 nanograms$_ amount:(VarUInteger 16) = Coins;
 
 // TokenRoot smart contract StateInit
-// => inited_at – deploy time, will be replaced, must be 0 to invoke constructor
+// => inited – bool constructor
 // => salt_bytes – random 32 bytes to generate unique state init
-state_init#_ inited_at:uint64 salt_bytes:uint256 = TokenRootStateInit;
+state_init#_ inited:Bool salt_bytes:uint256 = TokenRootStateInit;
 
 // TokenWallet smart contract StateInit
 state_init#_ balance:Coins owner:StdAddrMaybeNone
@@ -44,7 +44,7 @@ burn_notification_query query_id:uint64 token_amount:Coins
 change_metadata_query query_id:uint64 new_metadata:^Cell = RootInternalMsgBody;
 transfer_ownership_query query_id:uint64 new_owner_address:StdAddrMaybeNone = RootInternalMsgBody;
 
-mint_query query_id:uint64 to_address:StdAddrMaybeNone token_amount:Coins
+mint_query query_id:uint64 to_address:MsgAddrSmpl token_amount:Coins
     fwd_amount:Coins fwd_body:^Cell notifbounce:Bool = RootInternalMsgBody;
 // --------------------------------------------------------------------------------
 // "internal_transfer_query" tag as in TEP74
@@ -53,10 +53,10 @@ internal_transfer_query#178d4519 query_id:uint64 token_amount:Coins
     either_bit:BoolTrue fwd_body:^Cell notifbounce:Bool = WalletInternalMsgBody;
 
 burn_query query_id:uint64 token_amount:Coins
-    response_address:StdAddrMaybeNone = WalletInternalMsgBody;
+    response_address:MsgAddrSmpl = WalletInternalMsgBody;
 
 base_transfer#_ query_id:uint64 token_amount:Coins to_address:MsgAddrSmpl
-    response_address:StdAddrMaybeNone custom_payload:(Maybe ^Cell)
+    response_address:MsgAddrSmpl custom_payload:(Maybe ^Cell)
     fwd_amount:Coins = WalletBaseTransfer;
 
 // "transfer_query" tag as in TEP74
