@@ -46,6 +46,14 @@ transfer_ownership_query query_id:uint64 new_owner_address:StdAddrMaybeNone = Ro
 
 mint_query query_id:uint64 to_address:MsgAddrSmpl token_amount:Coins
     fwd_amount:Coins fwd_body:^Cell notifbounce:Bool = RootInternalMsgBody;
+
+// TEP89 (Discoverable Jettons Wallets)
+provide_wallet_address_query#2c76b973 query_id:uint64
+    owner_address:MsgAddrSmpl include_address:Bool = InternalMsgBody;
+
+// TEP89 (Discoverable Jettons Wallets)
+take_wallet_address_response#d1735400 query_id:uint64
+    wallet_address:MsgAddrSmpl owner_address:(Maybe ^MsgAddrSmpl) = InternalMsgBody;
 // --------------------------------------------------------------------------------
 // "internal_transfer_query" tag as in TEP74
 internal_transfer_query#178d4519 query_id:uint64 token_amount:Coins

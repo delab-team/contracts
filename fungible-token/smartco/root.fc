@@ -106,6 +106,22 @@ int root::mint(slice msg_body) impure inline_ref {
     return true;
 }
 
+int root::provide_wallet_address(slice msg_body) impure inline_ref {
+    throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + STC::PROVIDE_ADDR_GAS_CONSUMPTION);
+
+    (slice owner_address, int include?) = msg_body~load::root::provide_wallet_address_query();
+    cell included = include? ? delib::stc(owner_address) : null();
+
+    cell state_init = wallet::state_init(self::wallet_code, owner_address, my_address());
+    slice wallet_address = delib::addrstd_by_state(WALLET::WORKCHAIN, state_init);
+
+    cell body = build::root::take_wallet_address_response(msg::query_id, wallet_address, included);
+    cell msg = delib::int_msg(msg::sender, true, 0, body, delib::EC());
+
+    send_raw_message(msg, MSGFLAG::REMAINING_GAS);
+    return true;
+}
+
 ;; bounced messages handler
 int root::on_bounce(slice msg_body) impure inline_ref {
     throw_unless(ERR::INVOP_BOUNCE, msg::op == op::wallet::internal_transfer_query);
@@ -127,6 +143,7 @@ int root::selector(slice msg_body) impure inline {
     if (msg::op == op::root::change_metadata_query) { return root::change_metadata(msg_body); }
     if (msg::op == op::root::transfer_ownership_query) { return root::transfer_ownership(msg_body); }
     if (msg::op == op::root::mint_query) { return root::mint(msg_body); }
+    if (msg::op == op::root::provide_wallet_address_query) { return root::provide_wallet_address(msg_body); }
 
     return false;
 }

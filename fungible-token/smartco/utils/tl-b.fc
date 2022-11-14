@@ -7,6 +7,9 @@ const int op::root::change_metadata_query           = 0x152b9240;
 const int op::root::transfer_ownership_query        = 0x2437677e;
 const int op::root::mint_query                      = 0x23b9ecc;
 
+const int op::root::provide_wallet_address_query    = 0x2c76b973; ;; TEP89
+const int op::root::take_wallet_address_response    = 0xd1735400; ;; TEP89
+
 const int op::wallet::internal_transfer_query       = 0x178d4519; ;; TEP74
 const int op::wallet::burn_query                    = 0x3a3b4252;
 const int op::wallet::transfer_query                = 0xf8a7ea5;  ;; TEP74
@@ -138,6 +141,47 @@ cell build::root::mint_query(
     return body.end_cell();
 }
 
+;; ================================================================
+
+;; op and query_id must be loaded before
+(slice, (slice, int)) load::root::provide_wallet_address_query(slice s) inline {
+    slice   owner_address   = s~load_msg_addr();
+    int     include_address = s~load_int(1);
+
+    return (s, (owner_address, include_address));
+}
+
+cell build::root::provide_wallet_address_query(
+    int query_id, slice owner_address, int include_address) inline {
+
+    builder body = begin_cell()
+        .store_uint(op::root::provide_wallet_address_query, 32)
+        .store_uint(query_id, 64)
+        .store_slice(owner_address)
+        .store_int(include_address, 1);
+
+    return body.end_cell();
+}
+
+;; ================================================================
+(slice, (slice, cell)) load::root::take_wallet_address_response(slice s) inline {
+    slice   wallet_address      = s~load_msg_addr();
+    cell    owner_address_cell  = s~load_maybe_ref();
+
+    return (s, (wallet_address, owner_address_cell {- can be null -}));
+}
+
+cell build::root::take_wallet_address_response(
+    int query_id, slice wallet_address, cell owner_address_cell {- can be null -}) inline {
+
+     builder body = begin_cell()
+        .store_uint(op::root::take_wallet_address_response, 32)
+        .store_uint(query_id, 64)
+        .store_slice(wallet_address)
+        .store_maybe_ref(owner_address_cell);
+
+    return body.end_cell();
+}
 ;; ================================================================
 
 ;; op and query_id must be loaded before
