@@ -1,0 +1,62 @@
+#pragma version ^0.3.0;
+
+global int      msg::op;
+global int      msg::query_id;
+global int      msg::bounced?;
+
+global slice    msg::sender;
+global int      msg::balance;
+global int      msg::value;
+global int      msg::fwd_fee;
+
+;; ---------------- msg flags ----------------
+const int MSGFLAG::SENDER_PAYS_FEES  = 1;
+const int MSGFLAG::IGNORE_ERRORS     = 2;
+const int MSGFLAG::DESTROY_IF_ZERO   = 32;
+const int MSGFLAG::REMAINING_GAS     = 64;
+const int MSGFLAG::ALL_NOT_RESERVED  = 128;
+;; -------------------------------------------
+
+(slice, ()) ctx::load(slice body, cell msg, int balance, int value) impure inline {
+    slice cs = msg.begin_parse();
+
+    int bounced? = cs~load_uint(4) & 1;
+    slice sender = cs~load_msg_addr();
+
+    cs~load_msg_addr(); ;; skip dst
+    cs~load_coins();    ;; skip value
+    cs~skip_bits(1);    ;; skip extracurrency collection
+    cs~load_coins();    ;; skip ihr_fee
+
+    if (bounced?) { body~skip_bits(32); }
+
+    msg::op         = body~load_uint(32);
+    msg::query_id   = body~load_uint(64);
+    msg::bounced?   = bounced?;
+
+    msg::sender     = sender;
+    msg::balance    = balance;
+    msg::value      = value;
+    msg::fwd_fee    = muldiv(cs~load_coins(), 3, 2);
+
+    return (body, ());
+}
+
+const int op::general::excesses = 0xd53276db;
+
+() ctx::send_excesses(slice to, int flag) impure inline {
+    cell body = begin_cell()
+        .store_uint(op::general::excesses , 32)
+        .store_uint(msg::query_id, 64)
+        .end_cell();
+
+    send_raw_message(delib::int_msg(to, false, 0, body, delib::EC()), flag);
+}
+
+() ctx::only_owner(int err, slice owner_address) impure inline {
+    throw_unless(err, equal_slice_bits(msg::sender, owner_address));
+}
+
+() ctx::reserve(int target) impure inline {
+    raw_reserve(max(msg::balance - msg::value, target), 0);
+}

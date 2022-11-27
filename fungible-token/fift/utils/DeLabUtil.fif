@@ -1,0 +1,20 @@
+library DeLabUtil // DeLab TON Blockchain Fift Library
+
+// -------------------------- jetton utils ------------------------------
+0x6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d // kimage
+0xc9046f7a37ad0ea7cee73355984fa5428982f8b37c8f7bcec91f7ac71a7cd104 // kdescr
+0xee80fd2f1e03480e2282363596ee752d7bb27f50776b95086a0279189675923e // kdecimals
+0xb76a7ca153c24671658335bbd08946350ffc621fa1c516e7123095d4ffd5c581 // ksymbol
+0x82a3537ff0dbce7eec35d69edc3a189ee6f17d82f353a553f9aa96cb0be3ce89 // kname
+5 tuple =: metadata-keys
+
+// Serializes onchain jetton metadata
+// and stores it as ref into Builder b
+// ( b name symbol decimals descr image -- b' )
+{ 0 {
+    dup 0 = { dictnew } { swap } cond
+    <b <b 0 8 u, 4 roll $, b> ref, b>
+    <s metadata-keys 3 pick [] 2 roll 256 udict!+
+    not abort"error add key-value" swap 1+
+} depth 3 - times drop <b 0x00 8 u, swap dict, b> ref, } : Onchmd,
+// ----------------------------------------------------------------------

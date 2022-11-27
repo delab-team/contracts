@@ -1,0 +1,91 @@
+#pragma version ^0.3.0;
+
+;; FunC stdlib is required
+
+;; converts a slice into cell
+cell delib::stc(slice s) asm "NEWC SWAP STSLICER ENDC";
+
+slice delib::ES() asm "<b b> <s PUSHSLICE"; ;; creates an empty slice
+cell  delib::EC() asm "<b b> PUSHREF";      ;; creates an empty cell
+
+slice delib::addr_none() asm "b{00} PUSHSLICE";
+
+;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress
+const int delib::flags_bounce_false = 0x10; ;; b'010000' -> hex -> 0x10
+const int delib::flags_bounce_true  = 0x18; ;; b'011000' -> hex -> 0x10
+
+builder delib::begin_int_msg(int flags, slice addr, int amount) inline {
+    return begin_cell()
+        .store_uint(flags, 6)
+        .store_slice(addr)
+        .store_grams(amount)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32);
+        ;; 1  zeros (ExtraCurrencyCollection)
+        ;; 4  zeros (ihr_fee:Grams)
+        ;; 4  zeros (fwd_fee:Grams)
+        ;; 64 zeros (created_lt:uint64)
+        ;; 32 zeros (created_at:uint32)
+}
+
+builder delib::store_either_cell(builder b, cell c) inline {
+    slice cs = c.begin_parse();
+    if (b.builder_bits() + cs.slice_bits() > 1023) {
+        return b.store_int(true, 1).store_ref(c);
+    }
+
+    return b.store_int(false, 1).store_slice(cs);
+}
+
+(slice, (cell)) delib::load_either_cell(slice s) inline {
+    if (s~load_int(1)) {
+        cell c = s~load_ref();
+        return (s, (c));
+    }
+
+    return (delib::ES(), (delib::stc(s)));
+}
+
+cell delib::int_msg(slice dest, int bounce, int amount, cell body, cell init) inline_ref {
+    int flags = bounce ? delib::flags_bounce_true : delib::flags_bounce_false;
+    builder msg = delib::begin_int_msg(flags, dest, amount);
+
+    if (begin_parse(init).slice_bits() > 0) {
+        msg = msg.store_uint(3, 2).store_ref(init); ;; b'11'
+    } else {
+        msg = msg.store_int(false, 1); ;; b'0'
+    }
+
+    msg = msg.delib::store_either_cell(body); ;; body:(Either X ^X)
+    return msg.end_cell();
+}
+
+cell delib::basic_state_init(cell code, cell data) inline {
+    return begin_cell()
+        .store_uint(0, 2) ;; split_depth:(Maybe (## 5))
+        .store_dict(code) ;; special:(Maybe TickTock)
+        .store_dict(data) ;; code:(Maybe ^Cell)
+        .store_uint(0, 1) ;; data:(Maybe ^Cell)
+        .end_cell();
+}
+
+slice delib::addrstd_by_state(int workchain, cell state_init) inline {
+    builder addr = begin_cell()
+        .store_uint(4, 3)        ;; addr_std$10 without AnyCast
+        .store_int(workchain, 8) ;; workchain
+        .store_uint(cell_hash(state_init), 256);
+
+    return addr.end_cell().begin_parse();
+}
+
+int delib::is_wc_eq?(int wc, slice addr)            asm "REWRITESTDADDR DROP EQUAL";
+int delib::is_addr_none?(slice address)             asm "b{00} PUSHSLICE SDEQ";
+int delib::is_addr_std_no_anycast?(slice address)   asm "3 PLDU 4 PUSHINT EQUAL";
+
+() delib::force_addr(slice addr, int chain, int can_be_none?, int err) impure inline {
+    int is_none? = addr.delib::is_addr_none?();
+    if (is_none? & can_be_none?) { return (); }
+
+    throw_if(err, is_none?);
+    throw_unless(err, addr.delib::is_addr_std_no_anycast?());
+    throw_unless(err, delib::is_wc_eq?(chain, addr));
+}

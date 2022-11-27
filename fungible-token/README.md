@@ -1,67 +1,51 @@
 # DeLab TON fungible-token implementation
 
-**IN ACTIVE DEVELOPMENT. DO NOT USE IN PRODUCTION!**
+> :warning: IN ACTIVE DEVELOPMENT. DO NOT USE IN PRODUCTION!
 
-## Pre-requisites
+## Project structure
+
+| Path                            | Description  |
+| ------------------------------- | ------------ |
+| [`./func/`](./func/)            | FunC code    |
+| [`./fift/`](./fift/)            | Fift scripts |
+| [`./scheme.tlb`](./scheme.tlb)  | TL-B scheme  |
+
+## Deploy process
+
+1. Build smart contracts
 ```
-Node JS v16.16.0 or newer
-yarn 1.22.19 or newer
-FunC v0.3.0 or newer
-Fift [ Commit: 585c5d5b547b27294f9e8d97d43933a254bc93b8 ] or newer
-```
-
-## Build and deploy
-
-1. Install node js dependencies
-```bash
-yarn install
-```
-
-2. Build smart contracts
-```bash
-yarn build
+make
 ```
 
-3. Create `metadata.json` file with token metadata
-```json
-{
-    "name": "TestToken",
-    "symbol": "TT",
-    "decimals": "9",
-    "description": "Some fungible-token",
-    "image": "ipfs://bafkreicwu5getztwleuqlmhucc5m4wfnymmon3wiszhgsdgekiub2beizi"
-}
+2. Create a config based on `sample.conf`
+
+3. Run deploy fift script (`--help` for more info)
+```
+fift -s ./fift/deploy.fif deploy.conf ./build/out
 ```
 
-4. Create `tonconfig.json` (now only supports wallet v3r2)
-```json
-{
-    "mnemonic": "swim drive ... once mind",
-    "workchain": 0,
-    "subwalletId": 698983191,
-    "addressFormat": "testnet",
-    "toncenterapi": {
-        "url": "https://testnet.toncenter.com/api/v2/",
-        "key": "b0...c6e"
-    }
-}
-```
+4. Deploy into blockchain
 
-5. Deploy token contract and mint tokens
-```
-yarn deploy mexample.json 10000000000000
-```
+Send an internal message to smart contract address with StateInit and body,
+which were generated in the previous step.
 
-## Scripts
+## Standards coverage
 
-- `yarn build:root` - builds token root smart contract
-- `yarn build:wallet` - builds token wallet smart contract
-- `yarn build` - builds both of token root and token wallet
-- `yarn clean` - cleans build artifacts
+[**Fungible tokens (Jettons) standard [TEP74]**](https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md)
 
-- `yarn deploy` - deploys the token root smart contract (more info `-h`)
-- `yarn rootctrl` - script to interacting with token root (more info `-h`)
-- `yarn wallctrl` - script to interacting with token wallet (more info `-h`)
+| method                    | tag          |
+| ------------------------- | ------------ |
+| `transfer`                | `0x0f8a7ea5` |
+| `transfer_notification`   | `0x7362d09c` |
+
+Get-methods such as `get_wallet_data` and `get_jetton_data` also implemented.
+
+[**Discoverable Jettons Wallets [TEP89]**](https://github.com/ton-blockchain/TEPs/blob/master/text/0089-jetton-wallet-discovery.md)
+
+| method                    | tag          |
+| ------------------------- | ------------ |
+| `provide_wallet_address`  | `0x2c76b973` |
+| `take_wallet_address`     | `0xd1735400` |
 
 ## License
-GNU GENERAL PUBLIC LICENSE Version 3
+`GNU GENERAL PUBLIC LICENSE Version 3`

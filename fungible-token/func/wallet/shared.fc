@@ -1,0 +1,25 @@
+#pragma version ^0.3.0;
+
+cell wallet::pack_data(int balance, slice owner, slice root, cell code) inline {
+    builder data = begin_cell()
+        .store_coins(balance)
+        .store_slice(owner)
+        .store_slice(root)
+        .store_ref(code);
+
+    return data.end_cell();
+}
+
+cell wallet::state_init(cell code, slice owner, slice root) inline {
+    return delib::basic_state_init(code, wallet::pack_data(0, owner, root, code));
+}
+
+cell wallet::intmsg(slice address, cell state_init, cell body) inline {
+    cell msg = delib::int_msg(address, true, 0, body, state_init);
+    return msg;
+}
+
+cell wallet::buildmsg(int wc, cell code, slice owner, slice root, cell body) inline {
+    cell state_init = wallet::state_init(code, owner, root);
+    return wallet::intmsg(delib::addrstd_by_state(wc, state_init), state_init, body);
+}

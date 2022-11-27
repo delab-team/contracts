@@ -1,0 +1,95 @@
+#!/usr/bin/fift -s
+"TonUtil.fif"           include
+"GetOpt.fif"            include
+"utils/DeLabUtil.fif"   include
+
+// defaults
+true =: mintable
+0    =: init-supply
+1    =: fwd-amount
+""   =: comment
+
+{ show-options-help 1 halt } : usage
+begin-options
+    "<config-file> <save-file>" +cr
+    +" " +cr
+    +"Creates the fungible-token contract deploy body & state_init "
+    +"than saves it to <savefile>.init.boc, <savefile>.body.boc files" +cr +tab
+
+    disable-digit-options generic-help-setopt
+    "n" "--no-mintable" { false =: mintable } short-long-option
+        " "+tab +"Sets mintable flag to false" option-help
+    "i" "--init-supply" { parse-int =: init-supply } short-long-option-arg
+        "Sets an initial supply of the token in nano-tokens (" init-supply (.) $+ +" by default)" option-help
+    "m" "--mint-to" { parse-smc-addr drop 2=: mint-to } short-long-option-arg
+        " "+tab +"Sets the initial supply recipient (base64 addr) (INITIALIZER by default)" option-help
+    "r" "--resp-to" { parse-smc-addr drop 2=: resp-to } short-long-option-arg
+        " "+tab +"Sets the response_address (base64 addr) (INITIALIZER by default)" option-help
+    "a" "--fwd-amount" { $>GR =: fwd-amount } short-long-option-arg
+        "Sets transfer_notification amount in TONs (" fwd-amount (.GR) $+ +" by default)" option-help
+    "b" "--fwd-body" { =: fwd-body-boc-file } short-long-option-arg
+        " "+tab +"Sets transfer_notification body, path to boc file" +cr +tab option-help
+    "c" "--comment" { =: comment } short-long-option-arg
+        "Sets the comment to be sent in the transfer_notification" option-help
+
+    "h" "--help" { usage } short-long-option
+    " "+tab +tab +"Shows a help message" option-help
+parse-options
+
+$# 2 <> ' usage if
+
+0  =: workchain-id
+$1 =: config-file
+$2 =: save-file
+
+def? fwd-body-boc-file { @' fwd-body-boc-file file>B B>boc } {
+    comment $len 0 = { b{} s>c } { comment simple-transfer-body } cond
+} cond =: fwd-body-cell
+
+"utils/config.fif" include
+
+"build/wall.code.boc" file>B B>boc =: wall-code
+"build/root.code.boc" file>B B>boc =: root-code
+
+<b  // init storage
+    false 1 i,          // inited?
+    _initializer Addr,  // initializer
+    newkeypair drop B,  // salt
+b>  =: init-storage
+
+<b
+    0x24b81ac7 32 u,    // op
+    now 64 u,           // qury_id
+    mintable 1 i,
+    _name _symbol _decimals _descr _image Onchmd,
+    wall-code ref,
+    init-supply 0 > {
+        true 1 i, // mint_msg
+        <b
+            init-supply Gram,                                       // amount
+            def? mint-to { @' mint-to } { _initializer } cond Addr, // mint_to_address
+            def? resp-to { @' resp-to } { _initializer } cond Addr, // response_destination
+            fwd-amount Gram,                                        // forward_ton_amount
+
+            @' fwd-body-cell <s 2dup 1 s-fits-with? not rot over 1 i,
+            -rot { drop @' fwd-body-cell ref, } { s, } cond         // forward_payload
+        b> ref,
+    } { false 1 i, } cond
+b>  =: msg-body
+
+<b  // StateInit
+    b{0011} s,
+    root-code  ref,
+    init-storage ref,
+    null dict, // library
+b> =: state-init
+
+."----------------------------------------------------------------" cr
+state-init hashu workchain-id swap 2=: smc-addr
+."new contract address: " smc-addr 4 .Addr cr cr
+
+state-init 2 boc+>B save-file +".init.boc" tuck B>file
+."contract state init saved to: '" type ."' file" cr
+msg-body 2 boc+>B save-file +".body.boc" tuck B>file
+."contract msg body saved to:   '" type ."' file" cr
+."----------------------------------------------------------------" cr

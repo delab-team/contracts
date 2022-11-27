@@ -1,0 +1,95 @@
+bit$_ (## 1) = Bit;
+
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+bool_false$0 = BoolFalse;
+bool_true$1 = BoolTrue;
+
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+
+left$0 {X:Type} {Y:Type} value:X = Either X Y;
+right$1 {X:Type} {Y:Type} value:Y = Either X Y;
+
+// ----------------------------------------------------------------
+// ordinary Hashmap / HashmapE, with fixed length keys (FROM hashmap.tlb)
+// https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb
+hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+          {n = (~m) + l} node:(HashmapNode m X) = Hashmap n X;
+
+hmn_leaf#_ {X:Type} value:X = HashmapNode 0 X;
+hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X)
+           right:^(Hashmap n X) = HashmapNode (n + 1) X;
+
+hml_short$0 {m:#} {n:#} len:(Unary ~n) {n <= m} s:(n * Bit) = HmLabel ~n m;
+hml_long$10 {m:#} n:(#<= m) s:(n * Bit) = HmLabel ~n m;
+hml_same$11 {m:#} v:Bit n:(#<= m) = HmLabel ~n m;
+
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+
+hme_empty$0 {n:#} {X:Type} = HashmapE n X;
+hme_root$1 {n:#} {X:Type} root:^(Hashmap n X) = HashmapE n X;
+// ----------------------------------------------------------------
+
+addr_none$00 = MsgAddressExt;
+addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
+anycast_info$_ depth:(#<= 30) { depth >= 1 } rewrite_pfx:(bits depth) = Anycast;
+addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
+
+_ _:MsgAddressInt = MsgAddress;
+_ _:MsgAddressExt = MsgAddress;
+
+var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
+nanograms$_ amount:(VarUInteger 16) = Coins;
+
+// TEP64 (https://github.com/ton-blockchain/TEPs/blob/master/text/0064-token-data-standard.md)
+tail#_ {bn:#} b:(bits bn) = SnakeData ~0;
+cons#_ {bn:#} {n:#} b:(bits bn) next:^(SnakeData ~n) = SnakeData ~(n + 1);
+
+chunked_data#_ data:(HashmapE 32 ^(SnakeData ~0)) = ChunkedData;
+text#_ {n:#} data:(SnakeData ~n) = Text;
+snake#00 {n:#} data:(SnakeData ~n) = ContentData;
+chunks#01 data:ChunkedData = ContentData;
+onchain#00 data:(HashmapE 256 ^ContentData) = FullContent;
+offchain#01 uri:Text = FullContent;
+// ------------------------------------------------------------------------------------------------
+
+internal_transfer query_id:uint64 amount:(VarUInteger 16) from:MsgAddress
+    response_address:MsgAddress
+    forward_ton_amount:(VarUInteger 16)
+    forward_payload:(Either Cell ^Cell)
+    = InternalMsgBody;
+
+// TEP74 (https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md)
+transfer query_id:uint64 amount:(VarUInteger 16) destination:MsgAddress
+    response_destination:MsgAddress custom_payload:(Maybe ^Cell)
+    forward_ton_amount:(VarUInteger 16) forward_payload:(Either Cell ^Cell)
+    = InternalMsgBody;
+
+transfer_notification query_id:uint64 amount:(VarUInteger 16)
+    sender:MsgAddress forward_payload:(Either Cell ^Cell)
+    = InternalMsgBody;
+// ------------------------------------------------------------------------------------------------
+
+// TEP89 (https://github.com/ton-blockchain/TEPs/blob/master/text/0089-jetton-wallet-discovery.md)
+provide_wallet_address query_id:uint64 owner_address:MsgAddress include_address:Bool = InternalMsgBody;
+take_wallet_address query_id:uint64 wallet_address:MsgAddress owner_address:(Maybe ^MsgAddress) = InternalMsgBody;
+// ------------------------------------------------------------------------------------------------
+
+wall_burn query_id:uint64 amount:Coins response_destination:MsgAddress = InternalMsgBody;
+
+_ amount:Coins mint_to_address:MsgAddress response_destination:MsgAddress
+    forward_ton_amount:Coins forward_payload:(Either Cell ^Cell) = MintMsg;
+
+root_constructor query_id:uint64 mintable:Bool metadata:^FullContent
+    wallet_code:^Cell mint_msg:(Maybe ^MintMsg) = InternalMsgBody;
+
+root_burn_notification query_id:uint64 amount:Coins
+    sender:MsgAddress response_address:MsgAddress = RootInternalMsgBody;
+
+root_mint query_id:uint64 _:MintMsg = InternalMsgBody;
+root_set_metadata query_id:uint64 new_metadata:^FullContent = InternalMsgBody;
+root_transfer_ownership query_id:uint64 new_owner:MsgAddress = RootInternalMsgBody;

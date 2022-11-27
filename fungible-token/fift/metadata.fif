@@ -1,0 +1,32 @@
+#!/usr/bin/fift -s
+"TonUtil.fif"           include
+"GetOpt.fif"            include
+"utils/DeLabUtil.fif"   include
+
+{ show-options-help 1 halt } : usage
+begin-options
+    "<config-file> <save-file>" +cr
+    +" " +cr
+    +"Creates a message body to change token metadata and saves it to <savefile>.boc file" +cr +tab
+    disable-digit-options generic-help-setopt
+    "h" "--help" { usage } short-long-option
+    " "+tab +tab +"Shows a help message" option-help
+parse-options
+
+$# 2 <> ' usage if
+
+$1 =: config-file
+$2 =: save-file
+
+"utils/config.fif" include
+
+<b
+    0x3611ae36 32 u, // op set_metadata
+    now 64 u,        // query_id
+    _name _symbol _decimals _descr _image Onchmd, // new_metadata
+b>  =: msg-body
+
+."----------------------------------------------------------------" cr
+msg-body 2 boc+>B save-file +".boc" tuck B>file
+."contract msg body saved to:   '" type ."' file" cr
+."----------------------------------------------------------------" cr

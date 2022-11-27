@@ -8,6 +8,8 @@ build/*
 
 # other
 *.boc
+!shared/*
 *.conf
 *.log
+*test*
 !sample.conf

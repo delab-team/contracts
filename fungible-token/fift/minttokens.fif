@@ -1,0 +1,54 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif"  include
+
+1 =: fwd-amount
+"" =: comment
+
+{ show-options-help 1 halt } : usage
+begin-options
+    "<mint-to-addr> <amount> <save-file>" +cr
+    +" " +cr
+    +"Creates a message body for minting new tokens and saves it to <savefile>.boc file" +cr +tab
+
+    disable-digit-options generic-help-setopt
+    "r" "--resp-to" { parse-smc-addr drop 2=: resp-to } short-long-option-arg
+        " "+tab +"Sets the response_address (base64 addr) (mint-to-addr by default)" option-help
+    "a" "--fwd-amount" { $>GR =: fwd-amount } short-long-option-arg
+        "Sets transfer_notification amount in TONs (" fwd-amount (.GR) $+ +" by default)" option-help
+    "b" "--fwd-body" { =: fwd-body-boc-file } short-long-option-arg
+        " "+tab +"Sets transfer_notification body, path to boc file" option-help
+    "c" "--comment" { =: comment } short-long-option-arg
+        " "+tab +"Sets the comment to be sent in the transfer_notification" option-help
+
+    "h" "--help" { usage } short-long-option
+    " "+tab +tab +"Shows a help message" option-help
+parse-options
+
+$# 3 <> ' usage if
+
+$1 parse-smc-addr drop 2=: mint-to-addr
+$2 parse-int =: mint-amount
+$3 =: save-file
+
+def? fwd-body-boc-file { @' fwd-body-boc-file file>B B>boc } {
+    comment $len 0 = { b{} s>c } { comment simple-transfer-body } cond
+} cond =: fwd-body-cell
+
+<b
+    0x6f813cd5 32 u,    // op root_mint
+    now 64 u,           // query_id
+
+    mint-amount Gram,                                       // amount
+    mint-to-addr Addr,                                      // mint_to_address
+    def? resp-to { @' resp-to } { mint-to-addr } cond Addr, // response_destination
+    fwd-amount Gram,                                        // forward_ton_amount
+
+    @' fwd-body-cell <s 2dup 1 s-fits-with? not rot over 1 i,
+    -rot { drop @' fwd-body-cell ref, } { s, } cond         // forward_payload
+b>  =: msg-body
+
+."----------------------------------------------------------------" cr
+msg-body 2 boc+>B save-file +".boc" tuck B>file
+."contract msg body saved to:   '" type ."' file" cr
+."----------------------------------------------------------------" cr

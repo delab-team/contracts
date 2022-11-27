@@ -1,0 +1,10 @@
+// parse config
+{ bl word parse-smc-addr drop 2=: _initializer } : INITIALIZER:
+{ 124 word =: _name     } : NAME:
+{ 124 word =: _symbol   } : SYMBOL:
+{ bl  word =: _decimals } : DECIMALS:
+{ 124 word =: _descr    } : DESCRIPTION:
+{ bl  word =: _image    } : IMAGE:
+
+config-file include
+// ------------

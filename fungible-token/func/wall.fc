@@ -1,0 +1,145 @@
+#pragma version ^0.3.0;
+
+#include "libs/stdlib.fc";
+#include "libs/delib.fc";
+#include "utils/scheme.fc";
+#include "utils/context.fc";
+#include "wallet/shared.fc";
+#include "common.fc";
+
+global int      self::balance;
+global slice    self::owner_address;
+global slice    self::root_address;
+global cell     self::wallet_code;
+
+() load_data() impure inline_ref {
+    slice data = get_data().begin_parse();
+
+    self::balance       = data~load_coins();
+    self::owner_address = data~load_msg_addr();
+    self::root_address  = data~load_msg_addr();
+    self::wallet_code   = data~load_ref();
+}
+
+() save_data() impure inline_ref {
+    cell data = wallet::pack_data(
+        self::balance,
+        self::owner_address,
+        self::root_address,
+        self::wallet_code
+    );
+
+    set_data(data);
+}
+
+int receive_tokens(slice msg_body) impure inline_ref {
+    (int amount, slice from, slice response_address,
+    int forward_ton_amount, slice forward_payload) = msg_body.unpack_internal_transfer();
+
+    cell state_init = wallet::state_init(self::wallet_code, from, self::root_address);
+    slice wallet_address = delib::addrstd_by_state(CONF::WC, state_init);
+
+    int root? = equal_slice_bits(msg::sender, self::root_address);
+    int wall? = equal_slice_bits(msg::sender, wallet_address);
+    throw_unless(ERR::ACCESS, root? | wall?);
+
+    self::balance += amount;
+
+    if (forward_ton_amount > 0) {
+        cell body = pack_transfer_notification(msg::query_id, amount, from, forward_payload);
+        cell msg = delib::int_msg(self::owner_address, false, forward_ton_amount, body, delib::EC());
+        send_raw_message(msg, MSGFLAG::SENDER_PAYS_FEES);
+    }
+
+    if (~ response_address.delib::is_addr_none?()) {
+        ctx::send_excesses(response_address, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    }
+
+    return true;
+}
+
+int send_tokens(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+
+    (int amount, slice destination, slice response_destination,
+    int forward_ton_amount, slice forward_payload) = msg_body.unpack_transfer_query();
+    throw_unless(ERR::INVALID_FWDBOD, slice_bits(forward_payload) >= 1);
+
+    int fwd_count = forward_ton_amount ? 2 : 1;
+    throw_unless(ERR::NOT_ENOUGH, msg::value >
+                (CONF::MAX_GAS * 2) + (msg::fwd_fee * fwd_count)
+                + forward_ton_amount + WALL::TARGET);
+
+    delib::force_addr(destination, CONF::WC, false, ERR::ADDR_FORMAT); ;; can't be addr_none
+    delib::force_addr(response_destination, CONF::WC, true, ERR::ADDR_FORMAT); ;; can be addr_none
+
+    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) | (self::balance >= amount));
+    self::balance -= amount;
+
+    cell body = pack_internal_transfer(msg::query_id, amount, self::owner_address,
+                                        response_destination, forward_ton_amount, forward_payload);
+
+    cell msg = wallet::buildmsg(CONF::WC, self::wallet_code, destination, self::root_address, body);
+    send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED);
+    return true;
+}
+
+int burn_tokens(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+    (int amount, slice response_destination) = msg_body.unpack_wall_burn();
+
+    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) | (self::balance >= amount));
+    throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + (CONF::MAX_GAS * 2));
+    delib::force_addr(response_destination, CONF::WC, true, ERR::ADDR_FORMAT);
+
+    self::balance -= amount;
+
+    cell body = pack_root_burn_notification(msg::query_id, amount, msg::sender, response_destination);
+    cell msg = delib::int_msg(self::root_address, true, 0, body, delib::EC());
+    send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED);
+
+    return true;
+}
+
+;; bounced messages handler
+int on_bounce(slice msg_body) impure inline_ref {
+    throw_unless(ERR::NOT_FOUND,
+                (msg::op == op::wallet::internal_transfer) |
+                (msg::op == op::root::burn_notification));
+
+    load_data();
+    self::balance += msg_body~load_coins();
+    ctx::send_excesses(self::owner_address, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; function selector by msg::op
+int selector(slice msg_body) impure inline {
+    if (msg::bounced?) { return (on_bounce(msg_body)); }
+
+    load_data();
+    if (msg::op == op::wallet::internal_transfer) { return receive_tokens(msg_body); }
+    if (msg::op == op::wallet::transfer) { return send_tokens(msg_body); }
+    if (msg::op == op::wallet::burn) { return burn_tokens(msg_body); }
+
+    return false;
+}
+
+;; internal message entry point
+() recv_internal(int balance, int value, cell msg, slice msg_body) impure {
+    throw_if(0, msg_body.slice_empty?() | msg_body.slice_bits() < 32 + 64);
+
+    msg_body~ctx::load(msg, balance, value);
+    delib::force_addr(msg::sender, CONF::WC, false, ERR::ADDR_FORMAT);
+
+    ctx::reserve(WALL::TARGET);
+    if (selector(msg_body)) { return (save_data()); }
+
+    throw(0xffff); ;; not found
+}
+
+;; according to TEP74 (Fungible tokens (Jettons) standard)
+(int, slice, slice, cell) get_wallet_data() method_id {
+    load_data();
+    return (self::balance, self::owner_address, self::root_address, self::wallet_code);
+}

@@ -1,0 +1,208 @@
+#pragma version ^0.3.0;
+
+#include "libs/stdlib.fc";
+#include "libs/delib.fc";
+#include "utils/scheme.fc";
+#include "utils/context.fc";
+#include "wallet/shared.fc";
+#include "common.fc";
+
+global int      self::inited?;
+global slice    self::owner_address;
+global int      self::mintable?;
+global int      self::total_supply;
+global cell     self::metadata;
+global cell     self::wallet_code;
+
+() load_data() impure inline_ref {
+    slice data = get_data().begin_parse();
+
+    self::inited?           = data~load_int(1);
+    self::owner_address     = data~load_msg_addr();
+    self::mintable?         = data~load_int(1);
+    self::total_supply      = data~load_coins();
+    self::metadata          = data~load_ref();
+    self::wallet_code       = data~load_ref();
+}
+
+() save_data() impure inline {
+    builder data = begin_cell()
+        .store_int(self::inited?, 1)        ;; + stc 1   bit
+        .store_slice(self::owner_address)   ;; + max 267 bit (addr_std$10 without Anycast)
+        .store_int(self::mintable?, 1)      ;; + stc 1   bit
+        .store_coins(self::total_supply)    ;; + max 124 bit
+        .store_ref(self::metadata)          ;; + stc 1   ref
+        .store_ref(self::wallet_code);      ;; + stc 1   ref
+
+    ;; save maximum 393 and 2 refs cell to storage
+    set_data(data.end_cell());
+}
+
+;; private function to create a mint msg and perform a few checks
+cell _mint(slice mint_msg, int add_req_amount) impure inline {
+    (int amount, slice mint_to_address, slice response_destination,
+    int forward_ton_amount, slice forward_payload) = mint_msg.unpack_mint_msg();
+    throw_unless(ERR::INVALID_FWDBOD, slice_bits(forward_payload) >= 1);
+
+    ;;
+    ;; -()> this -(internal_transfer)-> wall -(transfer_notification)-> wall owner (if fwd amount)
+    ;;                                       -(excesses)-> response_destination    (optional)
+    int fwd_count = forward_ton_amount ? 2 : 1;
+    throw_unless(ERR::NOT_ENOUGH, msg::value >
+                (CONF::MAX_GAS * 2) + (msg::fwd_fee * fwd_count)
+                + forward_ton_amount + add_req_amount);
+
+    throw_unless(ERR::INVALID_AMOUNT, amount > 0);
+    delib::force_addr(mint_to_address, CONF::WC, false, ERR::ADDR_FORMAT);
+    delib::force_addr(response_destination, CONF::WC, true, ERR::ADDR_FORMAT);
+
+    cell body = pack_internal_transfer(msg::query_id, amount, msg::sender,
+                                        response_destination, forward_ton_amount, forward_payload);
+
+    self::total_supply += amount;
+    return wallet::buildmsg(CONF::WC, self::wallet_code, mint_to_address, my_address(), body);
+}
+
+;; contract constructor (can be called only once)
+int constructor(slice msg_body) impure inline_ref {
+    slice ds = get_data().begin_parse();
+    throw_if(ERR::CONSRTUCTOR, ds~load_int(1));
+    throw_unless(ERR::ACCESS, equal_slice_bits(msg::sender, ds~load_msg_addr()));
+
+    (int mintable, cell metadata, cell wallet_code, cell mint_msg)
+    = msg_body.unpack_root_constructor();
+
+    self::inited?       = true;
+    self::mintable?     = mintable;
+    self::total_supply  = 0;
+    self::owner_address = msg::sender;
+    self::metadata      = metadata;
+    self::wallet_code   = wallet_code;
+
+    if (~ cell_null?(mint_msg)) {
+        cell msg = _mint(mint_msg.begin_parse(), ROOT::TARGET + WALL::TARGET);
+        send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED);
+        return true;
+    }
+
+    throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + CONF::MAX_GAS + ROOT::TARGET);
+    ctx::send_excesses(msg::sender, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; only owner function to mint new tokens
+int mint(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+    send_raw_message(_mint(msg_body, WALL::TARGET), MSGFLAG::ALL_NOT_RESERVED);
+    return true;
+}
+
+;; only owner function to change token metadata
+int set_metadata(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+
+    self::metadata = msg_body.preload_ref();
+    ctx::send_excesses(msg::sender, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; only owner function to transfer ownership
+int transfer_ownership(slice msg_body) impure inline_ref {
+    ctx::only_owner(ERR::ACCESS, self::owner_address);
+
+    slice new_owner = msg_body~load_msg_addr();
+    delib::force_addr(new_owner, CONF::WC, true, ERR::ADDR_FORMAT);
+
+    self::owner_address = new_owner;
+    ctx::send_excesses(msg::sender, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; function to accept burn_notification from wall contract
+int burn_notification(slice msg_body) impure inline_ref {
+    (int amount, slice sender, slice response_address) = msg_body.unpack_root_burn_notification();
+
+    cell state_init = wallet::state_init(self::wallet_code, sender, my_address());
+    slice wallet_address = delib::addrstd_by_state(CONF::WC, state_init);
+
+    throw_unless(ERR::ACCESS, equal_slice_bits(msg::sender, wallet_address));
+    self::total_supply -= amount;
+
+    if (~ response_address.delib::is_addr_none?()) {
+        ctx::send_excesses(response_address, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    }
+
+    return true;
+}
+
+;; handler for TEP89
+int provide_wallet_address(slice msg_body) impure inline_ref {
+    throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + CONF::MAX_GAS);
+
+    (slice owner_address, int include?) = msg_body.unpack_provide_wallet_address();
+    cell included = include? ? delib::stc(owner_address) : null();
+
+    cell state_init = wallet::state_init(self::wallet_code, owner_address, my_address());
+    slice wallet_address = delib::addrstd_by_state(CONF::WC, state_init);
+
+    cell body = pack_take_wallet_address(msg::query_id, wallet_address, included);
+    cell msg = delib::int_msg(msg::sender, true, 0, body, delib::EC());
+
+    send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED);
+    return true;
+}
+
+;; bounced messages handler
+int on_bounce(slice msg_body) impure inline_ref {
+    throw_unless(ERR::NOT_FOUND, msg::op == op::wallet::internal_transfer);
+
+    load_data();
+    self::total_supply -= msg_body~load_coins(); ;; subtract the unminted tokens
+
+    ;; we send excesses to the owner because only he could call the new tokens mintion
+    ctx::send_excesses(self::owner_address, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; function selector by msg::op
+int selector(slice msg_body) impure inline {
+    if (msg::bounced?) { return (on_bounce(msg_body)); }
+    if (msg::op == op::root::constructor) { return constructor(msg_body); }
+
+    load_data();
+    if (msg::op == op::root::mint) { return mint(msg_body); }
+    if (msg::op == op::root::set_metadata) { return set_metadata(msg_body); }
+    if (msg::op == op::root::transfer_ownership) { return transfer_ownership(msg_body); }
+    if (msg::op == op::root::burn_notification) { return burn_notification(msg_body); }
+    if (msg::op == op::root::provide_wallet_address) { return provide_wallet_address(msg_body); }
+
+    return false;
+}
+
+;; internal message entry point
+() recv_internal(int balance, int value, cell msg, slice msg_body) impure {
+    throw_if(0, msg_body.slice_empty?() | msg_body.slice_bits() < 32 + 64);
+
+    msg_body~ctx::load(msg, balance, value);
+    delib::force_addr(msg::sender, CONF::WC, false, ERR::ADDR_FORMAT);
+
+    ctx::reserve(ROOT::TARGET);
+    if (selector(msg_body)) { return (save_data()); }
+
+    throw(ERR::NOT_FOUND); ;; not found
+}
+
+;; according to TEP74 (Fungible tokens (Jettons) standard)
+(int, int, slice, cell, cell) get_jetton_data() method_id {
+    load_data();
+
+    return (self::total_supply, self::mintable?, self::owner_address,
+            self::metadata, self::wallet_code);
+}
+
+;; according to TEP74 (Fungible tokens (Jettons) standard)
+slice get_wallet_address(slice owner) method_id {
+    load_data();
+    cell state_init = wallet::state_init(self::wallet_code, owner, my_address());
+    return delib::addrstd_by_state(CONF::WC, state_init);
+}

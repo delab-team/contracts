@@ -1,0 +1,135 @@
+#pragma version ^0.3.0;
+
+const int op::root::constructor                 = 0x24b81ac7;
+const int op::root::mint                        = 0x6f813cd5;
+const int op::root::set_metadata                = 0x3611ae36;
+const int op::root::transfer_ownership          = 0x45f53e63;
+const int op::root::burn_notification           = 0x3dba5544;
+
+const int op::root::provide_wallet_address      = 0x2c76b973; ;; TEP89
+const int op::root::take_wallet_address         = 0xd1735400; ;; TEP89
+
+const int op::wallet::internal_transfer         = 0x178d4519;
+const int op::wallet::transfer                  = 0x0f8a7ea5; ;; TEP74
+const int op::wallet::burn                      = 0x2b6406ac;
+
+const int op::general::transfer_notification    = 0x7362d09c; ;; TEP74
+
+cell pack_internal_transfer(int query_id, int amount, slice from,
+                            slice response_address, int forward_ton_amount,
+                            slice forward_payload) inline {
+
+    return begin_cell()
+        .store_uint(op::wallet::internal_transfer, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(from)
+        .store_slice(response_address)
+        .store_coins(forward_ton_amount)
+        .store_slice(forward_payload)
+        .end_cell();
+}
+
+;; op and query_id must be loaded before
+(int, slice, slice, int, slice) unpack_internal_transfer(slice s) inline {
+    int     amount              = s~load_coins();
+    slice   from                = s~load_msg_addr();
+    slice   response_address    = s~load_msg_addr();
+    int     forward_ton_amount  = s~load_coins();
+    slice   forward_payload     = s;
+
+    return (amount, from, response_address,
+            forward_ton_amount, forward_payload);
+}
+
+cell pack_transfer_notification(int query_id, int amount, slice sender,
+                                slice forward_payload) inline {
+
+    builder body = begin_cell()
+        .store_uint(op::general::transfer_notification, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(sender)
+        .store_slice(forward_payload);
+
+    return body.end_cell();
+}
+
+;; op and query_id must be loaded before
+(int, slice, slice, int, slice) unpack_transfer_query(slice s) inline {
+    int     amount                  = s~load_coins();
+    slice   destination             = s~load_msg_addr();
+    slice   response_destination    = s~load_msg_addr();
+    cell    custom_payload          = s~load_maybe_ref(); ;; ignored
+    int     forward_ton_amount      = s~load_coins();
+    slice   forward_payload         = s;
+
+    return (amount, destination, response_destination, forward_ton_amount, forward_payload);
+}
+
+;; op and query_id must be loaded before
+(int, slice, slice, int, slice) unpack_mint_msg(slice s) inline {
+    int     amount               = s~load_coins();
+    slice   mint_to_address      = s~load_msg_addr();
+    slice   response_destination = s~load_msg_addr();
+    int     forward_ton_amount   = s~load_coins();
+    slice   forward_payload      = s;
+
+    return (amount, mint_to_address, response_destination,
+            forward_ton_amount, forward_payload);
+}
+
+;; op and query_id must be loaded before
+(int, cell, cell, cell) unpack_root_constructor(slice s) inline {
+    int     mintable    = s~load_int(1);
+    cell    metadata    = s~load_ref();
+    cell    wallet_code = s~load_ref();
+    cell    mint_msg    = s~load_maybe_ref();
+
+    return (mintable, metadata, wallet_code, mint_msg);
+}
+
+;; op and query_id must be loaded before
+(int, slice, slice) unpack_root_burn_notification(slice s) inline {
+    int     amount              = s~load_coins();
+    slice   sender              = s~load_msg_addr();
+    slice   response_address    = s~load_msg_addr();
+
+    return (amount, sender, response_address);
+}
+
+cell pack_root_burn_notification(int query_id, int amount,
+                                slice sender, slice response_address) inline {
+    return begin_cell()
+        .store_uint(op::root::burn_notification, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(sender)
+        .store_slice(response_address)
+        .end_cell();
+}
+
+;; op and query_id must be loaded before
+(int, slice) unpack_wall_burn(slice s) inline {
+    int     amount                  = s~load_coins();
+    slice   response_destination    = s~load_msg_addr();
+
+    return (amount, response_destination);
+}
+
+;; op and query_id must be loaded before
+(slice, int) unpack_provide_wallet_address(slice s) inline {
+    slice   owner_address   = s~load_msg_addr();
+    int     include_address = s~load_int(1);
+
+    return (owner_address, include_address);
+}
+
+cell pack_take_wallet_address(int query_id, slice wallet_address, cell owner_address_cell) inline {
+     return begin_cell()
+        .store_uint(op::root::take_wallet_address, 32)
+        .store_uint(query_id, 64)
+        .store_slice(wallet_address)
+        .store_maybe_ref(owner_address_cell)
+        .end_cell();
+}

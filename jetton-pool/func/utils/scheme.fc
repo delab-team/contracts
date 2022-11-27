@@ -1,0 +1,114 @@
+#pragma version ^0.3.0;
+
+;; ---------------- op codes -----------------
+const int op::main::constructor_query           = 0xc86215;
+
+const int op::root::constructor                 = 0x24b81ac7;
+const int op::root::provide_wallet_address      = 0x2c76b973; ;; TEP89
+const int op::root::take_wallet_address         = 0xd1735400; ;; TEP89
+const int op::root::mint                        = 0x6f813cd5;
+
+const int op::wallet::transfer                  = 0x0f8a7ea5; ;; TEP74
+const int op::wallet::burn                      = 0x2b6406ac;
+
+const int op::general::transfer_notification    = 0x7362d09c; ;; TEP74
+;; -------------------------------------------
+
+const int meta::key::name          = 0x82a3537ff0dbce7eec35d69edc3a189ee6f17d82f353a553f9aa96cb0be3ce89;
+const int meta::key::symbol        = 0xb76a7ca153c24671658335bbd08946350ffc621fa1c516e7123095d4ffd5c581;
+const int meta::key::decimals      = 0xee80fd2f1e03480e2282363596ee752d7bb27f50776b95086a0279189675923e;
+const int meta::key::description   = 0xc9046f7a37ad0ea7cee73355984fa5428982f8b37c8f7bcec91f7ac71a7cd104;
+const int meta::key::image         = 0x6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d;
+
+;; op and query_id must be loaded before
+(slice, slice, int, int, cell, cell, cell, cell) unpack_main_constructor(slice s) inline {
+    slice   token_a_address = s~load_msg_addr();
+    slice   token_b_address = s~load_msg_addr();
+    int     reward_amount   = s~load_coins();
+    int     reward_interval = s~load_uint(32);
+    cell    lp_root_code    = s~load_ref();
+    cell    lp_wall_code    = s~load_ref();
+    cell    lp_name         = s~load_ref();
+    cell    lp_symbol       = s~load_ref();
+
+    return (token_a_address, token_b_address, reward_amount,
+            reward_interval, lp_root_code, lp_wall_code, lp_name, lp_symbol);
+}
+
+cell pack_simple_mint(int query_id, slice to_address, int amount) inline {
+    return begin_cell()
+        .store_uint(op::root::mint, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(to_address) ;; mint_to_address
+        .store_slice(to_address) ;; response_destination
+        .store_coins(1)          ;; fwd_amount
+        .store_int(false, 1)     ;; forward_payload
+        .end_cell();
+}
+
+cell pack_simple_token_transfer(int query_id, int token_amount,
+                                slice to_address, slice response_address) inline {
+    return begin_cell()
+        .store_uint(op::wallet::transfer, 32)
+        .store_uint(query_id, 64)
+        .store_coins(token_amount)
+        .store_slice(to_address)
+        .store_slice(response_address)
+        .store_maybe_ref(null())    ;; custom_payload
+        .store_coins(1)             ;; fwd_amount
+        .store_int(false, 1)        ;; either fwd_body
+        .end_cell();
+}
+
+cell pack_simple_burn(int query_id, int token_amount, slice response_address) inline {
+    return begin_cell()
+        .store_uint(op::wallet::burn, 32)
+        .store_uint(query_id, 64)
+        .store_coins(token_amount)
+        .store_slice(response_address)
+        .end_cell();
+}
+
+cell pack_provide_wallet(int query_id, slice owner_address, int include_address) inline {
+    builder body = begin_cell()
+        .store_uint(op::root::provide_wallet_address, 32)
+        .store_uint(query_id, 64)
+        .store_slice(owner_address)
+        .store_int(include_address, 1);
+
+    return body.end_cell();
+}
+
+cell pack_root_constructor(int query_id, cell metadata, cell wallet_code) inline {
+    return begin_cell()
+        .store_uint(op::root::constructor, 32)
+        .store_uint(query_id, 64)
+        .store_int(true, 1)      ;; mintable : true
+        .store_ref(metadata)     ;; metadata
+        .store_ref(wallet_code)  ;; wallet_code
+        .store_int(false, 1)     ;; maybe mint_msg
+        .end_cell();
+}
+
+cell pack_root_init(slice initializer) inline {
+    return begin_cell().store_int(false, 1).store_slice(initializer).end_cell();
+}
+
+cell pack_metavalue(slice s) inline {
+    return begin_cell().store_uint(0, 8).store_slice(s).end_cell();
+}
+
+cell pack_token_metadata(cell name, cell symbol, slice decimals,
+                        slice description, slice image) inline {
+
+    cell dict = new_dict();
+
+    dict~udict_set_ref(256, meta::key::name, name);
+    dict~udict_set_ref(256, meta::key::symbol, symbol);
+    dict~udict_set_ref(256, meta::key::decimals, pack_metavalue(decimals));
+    dict~udict_set_ref(256, meta::key::description, pack_metavalue(description));
+    dict~udict_set_ref(256, meta::key::image, pack_metavalue(image));
+
+    return begin_cell().store_uint(0x00, 8).store_dict(dict).end_cell();
+}

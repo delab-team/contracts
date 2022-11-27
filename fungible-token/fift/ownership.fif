@@ -1,0 +1,31 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif"  include
+
+{ show-options-help 1 halt } : usage
+begin-options
+    "<new-owner-address> <>" +cr
+    +" " +cr
+    +"Creates a message body to transfer token ownership and saves it to <savefile>.boc file. "+cr
+    +"Use 00 as <new-owner-address> argument for transfering ownership to add_none$00." +cr +tab
+    disable-digit-options generic-help-setopt
+    "h" "--help" { usage } short-long-option
+    " "+tab +tab +"Shows a help message" option-help
+parse-options
+
+$# 2 <> ' usage if
+
+$1 =: new-owner-address
+$2 =: save-file
+
+<b
+    0x45f53e63 32 u, // op transfer_ownership
+    now 64 u,        // query_id
+    new-owner-address "00" $=
+    { b{00} s, } { new-owner-address parse-smc-addr drop Addr, } cond
+b>  =: msg-body
+
+."----------------------------------------------------------------" cr
+msg-body 2 boc+>B save-file +".boc" tuck B>file
+."contract msg body saved to:   '" type ."' file" cr
+."----------------------------------------------------------------" cr

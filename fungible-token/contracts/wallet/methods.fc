@@ -1,7 +1,0 @@
-#pragma version ^0.3.0;
-
-;; according to TEP74 (Fungible tokens (Jettons) standard)
-(int, slice, slice, cell) get_wallet_data() method_id {
-    _load_data();
-    return (self::balance, self::owner_address, self::troot_addr, self::wallet_code);
-}

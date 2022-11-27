@@ -1,0 +1,15 @@
+#pragma version ^0.3.0;
+
+const int CONF::WC = 0;
+
+const int ERR::CONSRTUCTOR      = 1000;
+const int ERR::ADDR_FORMAT      = 1001;
+const int ERR::ACCESS           = 1002;
+const int ERR::INVALID_AMOUNT   = 1003;
+const int ERR::INVALID_FWDBOD   = 1004;
+const int ERR::NOT_ENOUGH       = 709;
+const int ERR::NOT_FOUND        = 0xffff;
+
+const int ROOT::TARGET  = 100000000; ;; 0.1 ton
+const int WALL::TARGET  = 20000000;  ;; 0.02 ton
+const int CONF::MAX_GAS = 20000000;  ;; 0.02 ton

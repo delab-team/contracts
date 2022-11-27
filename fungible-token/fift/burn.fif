@@ -1,0 +1,36 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif"  include
+
+{ show-options-help 1 halt } : usage
+begin-options
+    "<amount> <save-file>" +cr
+    +" " +cr
+    +"Creates a message body for burning tokens and saves it to <savefile>.boc file" +cr +tab
+
+    disable-digit-options generic-help-setopt
+    "r" "--resp-to" { =: resp-to } short-long-option-arg
+        " "+tab +"Sets the response_address (base64 addr) (00 by default)" option-help
+
+    "h" "--help" { usage } short-long-option
+    " "+tab +tab +"Shows a help message" option-help
+parse-options
+
+$# 2 <> ' usage if
+
+$1 parse-int =: burn-amount
+$2 =: save-file
+
+<b
+    0x2b6406ac 32 u,    // op wall_burn
+    now 64 u,           // query_id
+    burn-amount Gram,   // amount
+    def? resp-to { resp-to "00" $= { b{00} s, }
+        { resp-to parse-smc-addr drop Addr, } cond
+    } { b{00} s, } cond
+b>  =: msg-body
+
+."----------------------------------------------------------------" cr
+msg-body 2 boc+>B save-file +".boc" tuck B>file
+."contract msg body saved to:   '" type ."' file" cr
+."----------------------------------------------------------------" cr

@@ -1,0 +1,278 @@
+#pragma version ^0.3.0;
+
+#include "libs/stdlib.fc";
+#include "libs/delib.fc";
+#include "utils/scheme.fc";
+#include "utils/context.fc";
+#include "wallet/shared.fc";
+#include "storage.fc";
+
+const slice LP::DECIMALS = "9";
+const slice LP::DESCR    = "DeLab.t.me Farms LP token";
+const slice LP::IMAGE    = "ipfs://bafkreigv3tnjxrdthyd4khmkxxoyvc33lzgfhe74rincpcenj3y3ss6tmi";
+
+const int ERR::CONSRTUCTOR  = 1000;
+const int ERR::ADDR_FORMAT  = 1001;
+const int ERR::ACCESS       = 1002;
+const int ERR::NOT_ENOUGH   = 709;
+
+const int CONF::WC = 0;
+
+const int MAIN::TARGET  = 500000000; ;; 0.5 ton
+const int ROOT::TARGET  = 100000000; ;; 0.1 ton
+const int WALL::TARGET  = 20000000;  ;; 0.02 ton
+const int CONF::MAX_GAS = 50000000;  ;; 0.05 ton
+
+;; contract constructor (can be called only once)
+int constructor(slice msg_body) impure inline_ref {
+    slice ds = get_data().begin_parse();
+    throw_if(ERR::CONSRTUCTOR, ds~load_int(1));
+    throw_unless(ERR::ACCESS, equal_slice_bits(msg::sender, ds~load_msg_addr()));
+
+    ;; --------------------------------------------------------------------------
+    ;; this |-(provide_wallet)-> root_a  -(take_wallet)-> this -(excesses)-> initializer
+    ;;      |-(provide_wallet)-> root_b  -(take_wallet)-> this -(excesses)-> initializer
+    ;;      |-(constructor)->    root_lp -(excesses)->    this -(excesses)-> initializer
+    ;; --------------------------------------------------------------------------
+    throw_unless(ERR::NOT_ENOUGH, msg::value > ;; excesses may fail, but it's ok
+                MAIN::TARGET + ROOT::TARGET + CONF::MAX_GAS
+                + (msg::fwd_fee * 5) + (CONF::MAX_GAS * 5));
+
+    (slice token_a_address, slice token_b_address, int reward_amount, int reward_interval,
+    cell lp_root_code, cell lp_wall_code, cell lp_name, cell lp_symbol)
+    = msg_body.unpack_main_constructor();
+
+    delib::force_addr(token_a_address, CONF::WC, false, ERR::ADDR_FORMAT);
+    delib::force_addr(token_b_address, CONF::WC, false, ERR::ADDR_FORMAT);
+
+    int  ptonv = CONF::MAX_GAS + msg::fwd_fee;
+    cell pbody = pack_provide_wallet(msg::query_id, my_address(), false);
+
+    cell msga = delib::int_msg(token_a_address, false, ptonv, pbody, delib::EC());
+    cell msgb = delib::int_msg(token_b_address, false, ptonv, pbody, delib::EC());
+    send_raw_message(msga, MSGFLAG::SENDER_PAYS_FEES);
+    send_raw_message(msgb, MSGFLAG::SENDER_PAYS_FEES);
+
+    cell metadata  = pack_token_metadata(lp_name, lp_symbol, LP::DECIMALS, LP::DESCR, LP::IMAGE);
+    cell root_body = pack_root_constructor(msg::query_id, metadata, lp_wall_code);
+
+    cell  root_state_init   = delib::basic_state_init(lp_root_code, pack_root_init(my_address()));
+    slice root_address      = delib::addrstd_by_state(CONF::WC, root_state_init);
+    cell  root_deploy_msg   = delib::int_msg(root_address, false, 0, root_body, root_state_init);
+    send_raw_message(root_deploy_msg, MSGFLAG::ALL_NOT_RESERVED);
+
+    cell wallet_state_init = wallet::state_init(lp_wall_code, my_address(), root_address);
+
+    self::inited?           = true;
+    self::initializer       = msg::sender;
+    self::token_a_wall_set? = false;
+    self::token_b_wall_set? = false;
+    self::reward_amount     = reward_amount;
+    self::last_reward_ts    = 0;
+    self::reward_interval   = reward_interval;
+
+    self::token_a_root = token_a_address;
+    self::token_b_root = token_b_address;
+    self::token_l_root = root_address;
+
+    self::token_a_wall = delib::addr_none();
+    self::token_b_wall = delib::addr_none();
+    self::token_l_wall = delib::addrstd_by_state(CONF::WC, wallet_state_init);
+
+    self::token_b_balance = 0;
+    self::token_b_shared  = 0;
+    self::token_l_supply  = 0;
+
+    return true;
+}
+
+;; function that sets addresses of token wallets
+int take_wallet(slice msg_body) impure inline_ref {
+    int ok? = false;
+
+    if (equal_slice_bits(msg::sender, self::token_a_root)) {
+        self::token_a_wall = msg_body~load_msg_addr();
+        self::token_a_wall_set? = true;
+        ok? = true;
+    }
+
+    if (equal_slice_bits(msg::sender, self::token_b_root)) {
+        self::token_b_wall = msg_body~load_msg_addr();
+        self::token_b_wall_set? = true;
+        ok? = true;
+    }
+
+    if (~ ok?) { throw(ERR::ACCESS); }
+    ctx::send_excesses(self::initializer, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+;; function that just sends excesses to initializer
+int excesses_to_initializer() impure inline {
+    ctx::send_excesses(self::initializer, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+    return true;
+}
+
+cell token_transfer(int token_amount, slice to_address, slice response_address,
+                    slice token_wall, int coins_value) inline {
+
+    cell transfer_body = pack_simple_token_transfer(msg::query_id, token_amount,
+                                                    to_address, response_address);
+
+    return delib::int_msg(token_wall, false, coins_value, transfer_body, delib::EC());
+}
+
+() bounce_tokens(slice to, slice token_wall, int token_amount) impure inline {
+    cell msg = token_transfer(token_amount, to, to, token_wall, 0);
+    send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+
+    commit();
+    throw(ERR::NOT_ENOUGH);
+}
+
+int calc_to_share() inline {
+    int time_diif = now() - self::last_reward_ts;
+    int to_share = muldiv(time_diif, self::reward_amount, self::reward_interval);
+    return min(to_share, self::token_b_balance);
+}
+
+;; function that accepts incoming token transfer
+int accept_tokens(slice msg_body) impure inline_ref {
+    int token_a? = equal_slice_bits(msg::sender, self::token_a_wall);
+    int token_b? = equal_slice_bits(msg::sender, self::token_b_wall);
+    int token_l? = equal_slice_bits(msg::sender, self::token_l_wall);
+    throw_unless(ERR::ACCESS, token_a? | token_b? | token_l?);
+
+    (int token_amount, slice tsender) = (msg_body~load_coins(), msg_body~load_msg_addr());
+
+    if (token_a?) { ;; accept stake request
+        ;; --------------------------------------------------------------------------
+        ;; this -(mint)-> l_root -(internal_transfer)-> user_l_wall -|-(response)-> ... (may fail)
+        ;;                                                           |-(notification)-> ...
+        ;;
+        ;; + MAX_GAS(this + l_root + user_l_wall)
+        ;; + fwd_fee(mint + internal_transfer + notification)
+        ;; + WALL::TARGET for user_l_wall and + 1 for notification(fwd_amount)
+        ;; --------------------------------------------------------------------------
+        if (msg::value < (CONF::MAX_GAS + msg::fwd_fee) * 3 + WALL::TARGET + 1) {
+            ;; an exception will be thrown
+            bounce_tokens(tsender, self::token_a_wall, token_amount);
+        }
+
+        cell body = pack_simple_mint(msg::query_id, tsender, token_amount);
+        cell msg = delib::int_msg(self::token_l_root, false, 0, body, delib::EC());
+        send_raw_message(msg, MSGFLAG::ALL_NOT_RESERVED);
+
+        self::token_l_supply += token_amount;
+        if (self::last_reward_ts == 0) { self::last_reward_ts = now(); }
+
+        return true;
+    }
+
+    if (token_b?) { ;; just top up the pool balance with b tokens
+        if (msg::value < CONF::MAX_GAS + msg::fwd_fee) {
+            ;; an exception will be thrown
+            bounce_tokens(tsender, self::token_b_wall, token_amount);
+        }
+
+        self::token_b_balance += token_amount;
+        ctx::send_excesses(tsender, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::IGNORE_ERRORS);
+        return true;
+    }
+
+    if (token_l?) { ;; accept withdrawal request
+        ;; -------------------------------------------------------------------------- X1
+        ;; (response) may fail, it's ok
+        ;; this -(burn_msg)-> l_wall -(notification)-> l_root -(response)-> sender
+        int burn_chain = (msg::fwd_fee + CONF::MAX_GAS) * 2;
+        ;; -------------------------------------------------------------------------- X2
+        ;; (response) may fail, it's ok
+        ;; this -(transfer_msg)-> b_wall -(int_transfer)-> sender_wall -|-(response)->     sender
+        ;;                                                              |-(notification)-> sender
+        int transfer_chain = 1 + WALL::TARGET + (msg::fwd_fee * 3) + (CONF::MAX_GAS * 2);
+        ;; --------------------------------------------------------------------------
+
+        if (msg::value < (transfer_chain * 2) + burn_chain + CONF::MAX_GAS {- for this -}) {
+            ;; an exception will be thrown
+            bounce_tokens(tsender, self::token_l_wall, token_amount);
+        }
+
+        int to_share = calc_to_share();
+        self::token_b_shared  += to_share;
+        self::token_b_balance -= to_share;
+
+        ;; we trust, that reward can't be more than self::token_b_shared
+        int reward = muldiv(self::token_b_shared, token_amount, self::token_l_supply);
+        if (reward > 0) { ;; send reward
+            cell msg = token_transfer(reward, tsender, tsender, self::token_b_wall, transfer_chain);
+            send_raw_message(msg, MSGFLAG::SENDER_PAYS_FEES);
+            self::token_b_shared -= reward;
+        }
+
+        ;; send staked tokens
+        cell msg = token_transfer(token_amount, tsender, tsender, self::token_a_wall, transfer_chain);
+        send_raw_message(msg, MSGFLAG::SENDER_PAYS_FEES);
+
+        ;; burn l tokens
+        cell burn_body = pack_simple_burn(msg::query_id, token_amount, tsender);
+        cell burn_msg = delib::int_msg(self::token_l_wall, false, burn_chain, burn_body, delib::EC());
+        send_raw_message(burn_msg, MSGFLAG::ALL_NOT_RESERVED + MSGFLAG::SENDER_PAYS_FEES);
+
+        self::last_reward_ts = now();
+        self::token_l_supply -= token_amount;
+
+        return true;
+    }
+
+    return true;
+}
+
+;; function selector by msg::op
+int selector(slice msg_body) impure inline {
+    throw_if(0, (msg::op == 0 | msg::bounced?)); ;; ignore simple transfers or bounced
+    if (msg::op == op::main::constructor_query) { return constructor(msg_body); }
+
+    load_data();
+    if (msg::op == op::general::transfer_notification) { return accept_tokens(msg_body); }
+    if (msg::op == op::root::take_wallet_address) { return take_wallet(msg_body); }
+    if (msg::op == op::general::excesses) { return excesses_to_initializer(); }
+
+    return false;
+}
+
+;; internal message entry point
+() recv_internal(int balance, int value, cell msg, slice msg_body) impure {
+    throw_if(0, msg_body.slice_empty?() | msg_body.slice_bits() < 32 + 64);
+
+    msg_body~ctx::load(msg, balance, value);
+    delib::force_addr(msg::sender, CONF::WC, false, ERR::ADDR_FORMAT);
+
+    ctx::reserve(MAIN::TARGET);
+    if (selector(msg_body)) { return (save_data()); }
+
+    throw(0xffff); ;; not found
+}
+
+(slice) get_initializer() method_id {
+    load_data();
+    return (self::initializer);
+}
+
+(int, int, int, int, int, int, int, int) get_pool_info() method_id {
+    load_data();
+    return (self::inited? & self::token_a_wall_set? & self::token_b_wall_set?,
+            self::reward_amount,
+            self::last_reward_ts,
+            self::reward_interval,
+            self::token_b_balance,
+            self::token_b_shared + calc_to_share(), ;; actual
+            self::token_b_shared,                   ;; from storage
+            self::token_l_supply);
+}
+
+([slice, slice], [slice, slice], [slice, slice]) get_token_addresses() method_id {
+    load_data();
+    return ([self::token_a_root, self::token_a_wall],
+            [self::token_b_root, self::token_b_wall],
+            [self::token_l_root, self::token_l_wall]);
+}
