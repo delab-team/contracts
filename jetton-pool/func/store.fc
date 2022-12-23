@@ -1,0 +1,101 @@
+{-
+    This file is part of DeLab jetton-pool.
+
+    DeLab jetton-pool is free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as
+    published by the Free Software Foundation, either version 3 of
+    the License, or (at your option) any later version.
+
+    DeLab jetton-pool is distributed in the hope that it will be
+    useful, but WITHOUT ANY WARRANTY; without even the implied
+    warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+    See the GNU General Public License for more details.
+
+    Copyright (C) 2022 DeLab Team.
+-}
+
+#pragma version ^0.3.0;
+
+#include "libs/stdlib.fc";
+#include "libs/delib.fc";
+#include "utils/consts.fc";
+#include "utils/context.fc";
+
+global slice self::main_address;
+global slice self::staker_address;
+global cell  self::stored_data;
+
+() load_data() impure inline {
+    slice data = get_data().begin_parse();
+
+    self::main_address      = data~load_msg_addr();
+    self::staker_address    = data~load_msg_addr();
+    self::stored_data       = data~load_ref();
+}
+
+() save_data() impure inline {
+    builder data = begin_cell()
+        .store_slice(self::main_address)
+        .store_slice(self::staker_address)
+        .store_ref(self::stored_data);
+
+    set_data(data.end_cell());
+}
+
+() store_ext_data(slice msg_body) impure inline {
+    int fwd_op = msg_body~load_uint(32);
+    self::stored_data = msg_body~load_ref();
+
+    builder body = begin_cell()
+        .store_uint(fwd_op, 32)
+        .store_uint(msg::query_id, 64)
+        .store_slice(self::staker_address)
+        .store_slice(msg_body);
+
+    cell msg = delib::int_msg(msg::sender, false, 0, body.end_cell(), null());
+    send_raw_message(msg, MSG::ALL_NOT_RESERVED);
+}
+
+() get_store_data(slice msg_body) impure inline {
+    int fwd_op = msg_body~load_uint(32);
+
+    builder body = begin_cell()
+        .store_uint(fwd_op, 32)
+        .store_uint(msg::query_id, 64)
+        .store_slice(self::staker_address)
+        .store_ref(self::stored_data)
+        .store_slice(msg_body);
+
+    cell msg = delib::int_msg(msg::sender, false, 0, body.end_cell(), null());
+    send_raw_message(msg, MSG::ALL_NOT_RESERVED);
+}
+
+;; function selector by msg::op
+() callselector(slice msg_body) impure inline_ref {
+    throw_if(0, msg::op == 0 | msg::bounced?); ;; ignore simple transfers or bounced
+
+    load_data();
+    throw_unless(ERR::ACCESS, equal_slice_bits(msg::sender, self::main_address)); ;; auth
+
+    if (msg::op == op::store::store_ext_data) { return store_ext_data(msg_body); }
+    if (msg::op == op::store::get_store_data) { return get_store_data(msg_body); }
+
+    throw(0xffff); ;; not found
+}
+
+;; internal message entry point
+() recv_internal(int balance, int value, cell msg, slice msg_body) impure {
+    throw_if(0, msg_body.slice_empty?() | msg_body.slice_bits() < 32 + 64);
+
+    msg_body~ctx::load(msg, balance, value);
+    delib::force_addr(msg::sender, CONF::WC, false, ERR::ADDR_FORMAT);
+
+    ctx::reserve(STORE::TARGET);
+    callselector(msg_body);
+    save_data();
+}
+
+(slice, slice, cell) get_stored_data() method_id {
+    load_data();
+    return (self::main_address, self::staker_address, self::stored_data);
+}

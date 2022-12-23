@@ -2,16 +2,13 @@
 "TonUtil.fif"   include
 "GetOpt.fif"    include
 
-"build/main.code.boc"   file>B B>boc =: pool-code
-"shared/root.code.boc"  file>B B>boc =: root-code
-"shared/wall.code.boc"  file>B B>boc =: wall-code
+"build/main.code.boc"  file>B B>boc =: pool-code
+"build/store.code.boc" file>B B>boc =: stor-code
 
 { show-options-help 1 halt } : usage
-begin-options
-     "<config-file> <save-file>" +cr
-    +" " +cr
-    +"Creates the jetton-pool contract deploy state_init and body, "
-    +"than saves it to <savefile>.init.boc <savefile>.body.boc" +cr +tab
+begin-options "<config-file> <save-file>" +cr +cr
+    +"Creates the jetton-pool contract deploy state init and body," +cr
+    +"than saves it to <savefile>.init.boc, <savefile>.body.boc" +cr +tab
 
     disable-digit-options generic-help-setopt
     "h" "--help" { usage } short-long-option
@@ -24,50 +21,28 @@ $# 2 <> ' usage if
 $1 =: config-file
 $2 =: save-file
 
-{ bl word parse-smc-addr drop 2=: _initializer } : INITIALIZER:
-{ bl word parse-smc-addr drop 2=: _token_a } : TOKEN_A:
-{ bl word parse-smc-addr drop 2=: _token_b } : TOKEN_B:
-
-{ 124 word =: _lp_name }    : LP_NAME:
-{ 124 word =: _lp_symbol }  : LP_SYMB:
-
-{ bl word parse-int =: _reward_amount }  : REWARD_AMOUNT:
-{ bl word parse-int =: _reward_interv }  : REWARD_INTERV:
+{ bl word parse-smc-addr drop 2=: initializer   } : INITIALIZER:
+{ bl word parse-smc-addr drop 2=: token-a-addr  } : TOKEN_A:
+{ bl word parse-smc-addr drop 2=: token-b-addr  } : TOKEN_B:
+{ bl word parse-int            =: reward-amount } : REWARD_AMOUNT:
+{ bl word parse-int            =: reward-interv } : REWARD_INTERV:
 
 config-file include
 
-<b  // init storage
-    false 1 i,          // inited?
-    _initializer Addr,  // initializer
-    newkeypair drop B,  // salt
-b>  =: init-storage
-
 <b  // msg body (constructor_query)
-    0xc86215 32 u,
-    now 64 u,
-    _token_a Addr,
-    _token_b Addr,
-    _reward_amount Gram,
-    _reward_interv 32 u,
-    root-code ref,
-    wall-code ref,
-    <b 0 8 u, _lp_name   $, b> ref,
-    <b 0 8 u, _lp_symbol $, b> ref,
-b>  =: msg-body
+    0xe1 32 u, now 64 u,
+    token-a-addr  Addr,
+    token-b-addr  Addr,
+    reward-amount Gram,
+    reward-interv 32 u,
+    stor-code     ref,
+b>  =: msg-bodycc
 
-<b  // StateInit
-    b{0011} s,
-    pool-code  ref,
-    init-storage ref,
-    null dict, // library
-b> =: state-init
+// init storage (inited?, initializer, salt)
+<b false 1 i, initializer Addr, newkeypair drop B, b>        =: init-storage
+<b b{0011} s, pool-code ref, init-storage ref, null dict, b> =: state-init
 
-."----------------------------------------------------------------" cr
-state-init hashu workchain-id swap 2=: smc-addr
-."new contract address: " smc-addr 4 .Addr cr cr
-
+state-init hashu workchain-id swap .addr cr
 state-init 2 boc+>B save-file +".init.boc" tuck B>file
-."contract state init saved to: '" type ."' file" cr
-msg-body 2 boc+>B save-file +".body.boc" tuck B>file
-."contract msg body saved to:   '" type ."' file" cr
-."----------------------------------------------------------------" cr
+msg-bodycc 2 boc+>B save-file +".body.boc" tuck B>file
+."body and state init saved to: " type ."; " type cr

@@ -1,5 +1,8 @@
 #pragma version ^0.3.0;
 
+#include "../libs/stdlib.fc";
+#include "../libs/delib.fc";
+
 global int      msg::op;
 global int      msg::query_id;
 global int      msg::bounced?;
@@ -8,14 +11,6 @@ global slice    msg::sender;
 global int      msg::balance;
 global int      msg::value;
 global int      msg::fwd_fee;
-
-;; ---------------- msg flags ----------------
-const int MSGFLAG::SENDER_PAYS_FEES  = 1;
-const int MSGFLAG::IGNORE_ERRORS     = 2;
-const int MSGFLAG::DESTROY_IF_ZERO   = 32;
-const int MSGFLAG::REMAINING_GAS     = 64;
-const int MSGFLAG::ALL_NOT_RESERVED  = 128;
-;; -------------------------------------------
 
 (slice, ()) ctx::load(slice body, cell msg, int balance, int value) impure inline {
     slice cs = msg.begin_parse();
@@ -42,15 +37,13 @@ const int MSGFLAG::ALL_NOT_RESERVED  = 128;
     return (body, ());
 }
 
-const int op::general::excesses = 0xd53276db;
-
 () ctx::send_excesses(slice to, int flag) impure inline {
     cell body = begin_cell()
         .store_uint(op::general::excesses , 32)
         .store_uint(msg::query_id, 64)
         .end_cell();
 
-    send_raw_message(delib::int_msg(to, false, 0, body, delib::EC()), flag);
+    send_raw_message(delib::int_msg(to, false, 0, body, null()), flag);
 }
 
 () ctx::only_owner(int err, slice owner_address) impure inline {

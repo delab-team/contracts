@@ -1,0 +1,42 @@
+#pragma version ^0.3.0;
+
+const int op::main::constructor                 = 0xe1;
+const int op::main::unstake                     = 0xe2;
+
+const int op::root::provide_wallet_address      = 0x2c76b973; ;; TEP89
+const int op::root::take_wallet_address         = 0xd1735400; ;; TEP89
+
+const int op::wallet::transfer                  = 0x0f8a7ea5; ;; TEP74
+
+const int op::store::store_ext_data             = 0xb1;
+const int op::store::get_store_data             = 0xb2;
+const int op::store::take_recv_data             = 0xb3;
+const int op::store::store_callback             = 0xb4;
+
+const int callback::store::next_stake           = 0xb5;
+const int callback::store::next_unstake         = 0xb6;
+const int callback::store::end_stake_or_unstake = 0xb7;
+
+const int op::general::transfer_notification    = 0x7362d09c; ;; TEP74
+const int op::general::excesses                 = 0xd53276db;
+
+;; other
+const int STORE::TARGET = 100000000; ;; 0.1 ton
+
+const int ERR::CONSRTUCTOR      = 1000;
+const int ERR::ADDR_FORMAT      = 1001;
+const int ERR::ACCESS           = 1002;
+const int ERR::NOT_ENOUGH_STAKE = 1003;
+const int ERR::NOT_ENOUGH       = 709;
+
+const int MAIN::TARGET  = 500000000; ;; 0.5 ton
+
+const int CONF::TOKEN_FWD_AMOUNT    = 1;
+const int CONF::MAX_GAS             = 50000000;  ;; 0.05 ton
+const int CONF::WC                  = 0;
+
+const int MSG::SENDER_PAYS_FEES  = 1;
+const int MSG::IGNORE_ERRORS     = 2;
+const int MSG::DESTROY_IF_ZERO   = 32;
+const int MSG::REMAINING_GAS     = 64;
+const int MSG::ALL_NOT_RESERVED  = 128;

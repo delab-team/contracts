@@ -1,14 +1,27 @@
+{-
+    This file is part of DeLab jetton-pool.
+
+    DeLab jetton-pool is free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as
+    published by the Free Software Foundation, either version 3 of
+    the License, or (at your option) any later version.
+
+    DeLab jetton-pool is distributed in the hope that it will be
+    useful, but WITHOUT ANY WARRANTY; without even the implied
+    warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+    See the GNU General Public License for more details.
+
+    Copyright (C) 2022 DeLab Team.
+-}
+
 #pragma version ^0.3.0;
 
-;; FunC stdlib is required
+#include "./stdlib.fc"; ;; func stdlib is required
 
-;; converts a slice into cell
-cell delib::stc(slice s) asm "NEWC SWAP STSLICER ENDC";
-
-slice delib::ES() asm "<b b> <s PUSHSLICE"; ;; creates an empty slice
-cell  delib::EC() asm "<b b> PUSHREF";      ;; creates an empty cell
-
-slice delib::addr_none() asm "b{00} PUSHSLICE";
+slice   delib::ES()           asm "<b b> <s PUSHSLICE";         ;; creates an empty slice
+cell    delib::EC()           asm "<b b> PUSHREF";              ;; creates an empty cell
+cell    delib::stc(slice s)   asm "NEWC SWAP STSLICER ENDC";    ;; converts a slice into cell
+slice   delib::addr_none()    asm "b{00} PUSHSLICE";            ;; creates an addr_none$00 slice
 
 ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress
 const int delib::flags_bounce_false = 0x10; ;; b'010000' -> hex -> 0x10
@@ -29,33 +42,23 @@ builder delib::begin_int_msg(int flags, slice addr, int amount) inline {
 
 builder delib::store_either_cell(builder b, cell c) inline {
     slice cs = c.begin_parse();
-    if (b.builder_bits() + cs.slice_bits() > 1023) {
-        return b.store_int(true, 1).store_ref(c);
-    }
-
-    return b.store_int(false, 1).store_slice(cs);
+    return (b.builder_bits() + cs.slice_bits() > 1023)
+            ? b.store_int(true, 1).store_ref(c)
+            : b.store_int(false, 1).store_slice(cs);
 }
 
 (slice, (cell)) delib::load_either_cell(slice s) inline {
-    if (s~load_int(1)) {
-        cell c = s~load_ref();
-        return (s, (c));
-    }
-
-    return (delib::ES(), (delib::stc(s)));
+    cell loaded = s~load_int(1) ? s~load_ref() : delib::stc(s);
+    return (s, (loaded));
 }
 
-cell delib::int_msg(slice dest, int bounce, int amount, cell body, cell init) inline_ref {
+cell delib::int_msg(slice dest, int bounce, int amount, cell body, cell init) inline {
     int flags = bounce ? delib::flags_bounce_true : delib::flags_bounce_false;
+
     builder msg = delib::begin_int_msg(flags, dest, amount);
+    msg = cell_null?(init) ? msg.store_int(false, 1) : msg.store_uint(3, 2).store_ref(init);
+    msg = cell_null?(body) ? msg.store_int(false, 1) : msg.delib::store_either_cell(body);
 
-    if (begin_parse(init).slice_bits() > 0) {
-        msg = msg.store_uint(3, 2).store_ref(init); ;; b'11'
-    } else {
-        msg = msg.store_int(false, 1); ;; b'0'
-    }
-
-    msg = msg.delib::store_either_cell(body); ;; body:(Either X ^X)
     return msg.end_cell();
 }
 
