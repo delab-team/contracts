@@ -73,7 +73,7 @@ int send_tokens(slice msg_body) impure inline_ref {
     delib::force_addr(destination, CONF::WC, false, ERR::ADDR_FORMAT); ;; can't be addr_none
     delib::force_addr(response_destination, CONF::WC, true, ERR::ADDR_FORMAT); ;; can be addr_none
 
-    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) | (self::balance >= amount));
+    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) & (self::balance >= amount));
     self::balance -= amount;
 
     cell body = pack_internal_transfer(msg::query_id, amount, self::owner_address,
@@ -88,7 +88,7 @@ int burn_tokens(slice msg_body) impure inline_ref {
     ctx::only_owner(ERR::ACCESS, self::owner_address);
     (int amount, slice response_destination) = msg_body.unpack_wall_burn();
 
-    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) | (self::balance >= amount));
+    throw_unless(ERR::INVALID_AMOUNT, (self::balance > 0) & (self::balance >= amount));
     throw_unless(ERR::NOT_ENOUGH, msg::value > msg::fwd_fee + (CONF::MAX_GAS * 2));
     delib::force_addr(response_destination, CONF::WC, true, ERR::ADDR_FORMAT);
 
