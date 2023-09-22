@@ -1,0 +1,49 @@
+#include "imports/stdlib.fc";
+
+const int op::confirm = 0x93d37ba8;
+
+global slice user;
+global slice cheque;
+global int claimed;
+
+() load_data() impure {
+    var ds = get_data().begin_parse();
+
+    user = ds~load_msg_addr();
+    cheque = ds~load_msg_addr();
+    claimed = ds~load_int(1);
+
+    ds.end_parse();
+}
+
+() save_data() impure {
+    set_data(begin_cell()
+        .store_slice(user)
+        .store_slice(cheque)
+        .store_int(claimed, 1)
+    .end_cell()
+    );
+}
+
+() recv_internal(cell in_msg_full, slice in_msg) impure {
+    load_data();
+
+    (_, slice sender) = in_msg_full.begin_parse().skip_bits(4).load_msg_addr();
+    
+    throw_unless(700, equal_slices(cheque, sender));
+
+    throw_if(701, claimed);
+
+    claimed = -1;
+
+    send_raw_message(begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(cheque)
+        .store_coins(0)
+        .store_uint(0, 107)
+        .store_uint(op::confirm, 32)
+        .store_slice(user)
+    .end_cell(), 64);
+
+    save_data();
+}

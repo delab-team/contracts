@@ -1,0 +1,35 @@
+#include "imports/stdlib.fc";
+
+const int op::claim = 0x79b0b258;
+
+global int public_key;
+global cont claim_cont;
+
+() load_data() impure {
+    var ds = get_data().begin_parse();
+
+    public_key = ds~load_uint(256);
+    claim_cont = ds~load_ref().begin_parse().bless();
+}
+
+() claim (slice address, cont c) impure asm "EXECUTE";
+
+() recv_internal() impure { }
+
+() recv_external(slice in_msg) impure {
+    int op = in_msg~load_uint(32);
+
+    load_data();
+
+    if (op == op::claim){
+        slice signature = in_msg~load_bits(512);
+        slice address = in_msg;
+
+        throw_unless(700, check_signature(slice_hash(address), signature, public_key));
+
+        accept_message();
+
+        claim(address, claim_cont);
+    }
+}
+

@@ -1,0 +1,13 @@
+claim#79b0b258 signature:bits512 address:MsgAddressInt = ExternalMsgBody;
+
+claim#22356c66 signature:bits512 address:MsgAddressInt = InternalMsgBody;
+
+destroy#7ba45f85 = InternalMsgBody;
+
+confirm#93d37ba8 address:MsgAddressInt = InternalMsgBody;
+
+_ public_key:uint256 claim_cont:^Cell = OneTimeChequeStorage;
+
+_ public_key:uint256 cheque_amount:Coins owner_address:MsgAddressInt activations:uint64 activaited:uint64 claim_cont:^Cell helper_code:^Cell = MultiChequeStorage;
+
+_ user:MsgAddressInt cheque:MsgAddressInt claimed:Bool = HelperStorage; 

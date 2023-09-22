@@ -1,0 +1,17 @@
+"Asm.fif" include
+<{
+    16 PUSHINT
+    NEWC
+    6 STU
+    STSLICE
+    SWAP
+    STGRAMS
+    0 PUSHINT
+    SWAP
+    107 STU
+    ENDC
+    64 PUSHINT
+    SENDRAWMSG
+}>c
+boc>B
+Bx.

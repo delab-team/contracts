@@ -4,12 +4,13 @@ This monorepository consists of various smart contracts for the TON blockchain, 
 
 | Contract                              | Status   | Description  |
 | --------------------------------------| -------- | ------------ |
+| [`coupons`](./coupons/)               | `publish`|              |
 | [`fungible-token`](./fungible-token/) | `in dev` |              |
 | [`jetton-pool`](./jetton-pool/)       | `in dev` |              |
 
 ## Security
 
-If you find a potential vulnerability or bug in the source code of these projects, please contact us: [@deioann](https://t.me/deioann) or [@ivan_bridge](https://t.me/ivan_bridge). Thanks.
+If you find a potential vulnerability or bug in the source code of these projects, please contact us: [@ivan_bridge](https://t.me/ivan_bridge). Thanks.
 
 # License
 
